@@ -119,6 +119,14 @@ struct DrawingView: View {
                 print("✅ SVG 已儲存: \(fileURL)")
                 exportURL = fileURL
                 showingShareSheet = true
+                uploadToGitHub(
+                    fileURL: fileURL,
+                    repoOwner: "0mago0",
+                    repoName: "test-ios",
+                    branch: "handwriting",
+                    pathInRepo: "handwriting/\(fileURL.lastPathComponent)",
+                    token: "GitHub Personal Access Token with repo scope"
+                )
                 goToNextQuestion()
             } catch {
                 print("❌ 儲存失敗: \(error)")
@@ -159,4 +167,96 @@ struct ActivityViewController: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
         // No update needed
     }
+}
+
+// MARK: - GitHub Upload (Create/Update file via REST API)
+private func uploadToGitHub(fileURL: URL,
+                            repoOwner: String,
+                            repoName: String,
+                            branch: String,
+                            pathInRepo: String,
+                            token: String) {
+    guard !token.isEmpty else {
+        print("❌ 缺少 GitHub Token")
+        return
+    }
+    do {
+        let data = try Data(contentsOf: fileURL)
+        let base64 = data.base64EncodedString()
+        let session = URLSession(configuration: .default)
+
+        // 1) 檢查檔案是否已存在以取得 sha（更新時需要）
+        getFileSHAIfExists(repoOwner: repoOwner,
+                           repoName: repoName,
+                           pathInRepo: pathInRepo,
+                           branch: branch,
+                           token: token) { sha in
+            var payload: [String: Any] = [
+                "message": "Add \(fileURL.lastPathComponent)",
+                "content": base64,
+                "branch": branch
+            ]
+            if let sha = sha {
+                payload["sha"] = sha // update
+            }
+
+            guard let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/contents/\(pathInRepo)") else {
+                print("❌ URL 生成失敗")
+                return
+            }
+            var req = URLRequest(url: url)
+            req.httpMethod = "PUT"
+            req.addValue("token \(token)", forHTTPHeaderField: "Authorization")
+            req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: payload, options: [])
+
+            let task = session.dataTask(with: req) { data, resp, err in
+                if let err = err {
+                    print("❌ 上傳失敗: \(err)")
+                    return
+                }
+                if let http = resp as? HTTPURLResponse {
+                    print("ℹ️ GitHub 回應狀態碼: \(http.statusCode)")
+                    if http.statusCode == 201 || http.statusCode == 200 {
+                        print("✅ 已上傳到 GitHub: \(pathInRepo)")
+                    } else if let data = data, let text = String(data: data, encoding: .utf8) {
+                        print("❌ 上傳失敗，回應：\(text)")
+                    }
+                }
+            }
+            task.resume()
+        }
+    } catch {
+        print("❌ 讀取檔案失敗: \(error)")
+    }
+}
+
+// 取得既有檔案 SHA（若檔案不存在會回傳 nil）
+private func getFileSHAIfExists(repoOwner: String,
+                                repoName: String,
+                                pathInRepo: String,
+                                branch: String,
+                                token: String,
+                                completion: @escaping (String?) -> Void) {
+    guard let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/contents/\(pathInRepo)?ref=\(branch)") else {
+        completion(nil)
+        return
+    }
+    var req = URLRequest(url: url)
+    req.httpMethod = "GET"
+    req.addValue("token \(token)", forHTTPHeaderField: "Authorization")
+
+    URLSession.shared.dataTask(with: req) { data, resp, err in
+        if let http = resp as? HTTPURLResponse, http.statusCode == 404 {
+            completion(nil) // 檔案不存在
+            return
+        }
+        guard let data = data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sha = json["sha"] as? String else {
+            completion(nil)
+            return
+        }
+        completion(sha)
+    }.resume()
 }
