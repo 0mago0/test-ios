@@ -7,7 +7,7 @@ struct DrawingView: View {
     @State private var showingShareSheet = false
     @State private var exportURL: URL? = nil
     @State private var questionBank: [String] = []
-    @State private var currentIndex: Int = 0
+    @State private var currentIndex: Int = UserDefaults.standard.integer(forKey: "CurrentIndex") // 讀取存檔
 
     var targetText: String {
         guard !questionBank.isEmpty else { return "題庫載入中..." }
@@ -34,10 +34,7 @@ struct DrawingView: View {
                 // 下方 2/3：畫布 + 控制列
                 VStack(spacing: 0) {
                     ZStack {
-                        // 畫布背景
                         Color.white
-
-                        // 畫線
                         Path { path in
                             for stroke in paths {
                                 if let first = stroke.first {
@@ -47,7 +44,6 @@ struct DrawingView: View {
                                     }
                                 }
                             }
-
                             if let first = points.first {
                                 path.move(to: first)
                                 for p in points.dropFirst() {
@@ -96,7 +92,7 @@ struct DrawingView: View {
             }
         }
     }
-    
+
     // 匯出 SVG
     func exportSVG(paths: [[CGPoint]], fileName: String) {
         var svgPaths = ""
@@ -108,14 +104,13 @@ struct DrawingView: View {
                 }
             }
         }
-        
+
         let svg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="400" height="800" viewBox="0 0 400 800">
             <path d="\(svgPaths)" fill="none" stroke="black" stroke-width="2"/>
         </svg>
         """
-        
-        // 存檔到 Documents
+
         let fileManager = FileManager.default
         if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
             let fileURL = docDir.appendingPathComponent("\(fileName).svg")
@@ -130,7 +125,7 @@ struct DrawingView: View {
             }
         }
     }
-    
+
     func goToNextQuestion() {
         if !questionBank.isEmpty {
             if currentIndex < questionBank.count - 1 {
@@ -138,6 +133,8 @@ struct DrawingView: View {
             } else {
                 currentIndex = 0
             }
+            // 存到 UserDefaults
+            UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
         }
         points.removeAll()
         paths.removeAll()
