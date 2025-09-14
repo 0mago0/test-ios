@@ -1,5 +1,43 @@
 import SwiftUI
 import UIKit
+import Security
+
+// MARK: - Keychain helper & keys
+enum KeychainHelper {
+    static func save(key: String, value: String) {
+        let data = Data(value.utf8)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: data
+        ]
+        SecItemDelete(query as CFDictionary)
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    static func read(key: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess,
+              let data = item as? Data,
+              let str = String(data: data, encoding: .utf8) else { return nil }
+        return str
+    }
+}
+
+enum GHKeys {
+    static let owner  = "GH_OWNER"
+    static let repo   = "GH_REPO"
+    static let branch = "GH_BRANCH"
+    static let prefix = "GH_PATH_PREFIX"
+    static let tokenK = "GH_TOKEN"
+}
 
 struct DrawingView: View {
     @State private var points: [CGPoint] = []
@@ -8,6 +46,12 @@ struct DrawingView: View {
     @State private var exportURL: URL? = nil
     @State private var questionBank: [String] = []
     @State private var currentIndex: Int = UserDefaults.standard.integer(forKey: "CurrentIndex") // 讀取存檔
+    @AppStorage(GHKeys.owner)  private var ghOwner: String = ""
+    @AppStorage(GHKeys.repo)   private var ghRepo: String = ""
+    @AppStorage(GHKeys.branch) private var ghBranch: String = "main"
+    @AppStorage(GHKeys.prefix) private var ghPrefix: String = "handwriting"
+    @State private var showingSettings = false
+    @State private var showUploadHint = false
 
     var targetText: String {
         guard !questionBank.isEmpty else { return "題庫載入中..." }
@@ -71,6 +115,14 @@ struct DrawingView: View {
                             paths.removeAll()
                         }
                         Spacer()
+                        Button("設定") {
+                            // 若分享面板尚未關閉，先關閉以避免同時存在兩個 sheet 導致無法彈出
+                            if showingShareSheet { showingShareSheet = false }
+                            print("[UI] Settings tapped")
+                            DispatchQueue.main.async {
+                                showingSettings = true
+                            }
+                        }
                         Button("匯出SVG") {
                             let name = questionBank.isEmpty ? "handwriting" : questionBank[currentIndex]
                             exportSVG(paths: paths, fileName: name)
@@ -86,10 +138,17 @@ struct DrawingView: View {
                 .frame(height: geo.size.height * 2 / 3)
             }
         }
+        .sheet(isPresented: $showingSettings) {
+            GitHubSettingsView()
+        }
         .sheet(isPresented: $showingShareSheet) {
             if let url = exportURL {
                 ActivityViewController(activityItems: [url])
             }
+        }
+        .alert("請先完成 GitHub 設定", isPresented: $showUploadHint) {
+            Button("前往設定") { showingSettings = true }
+            Button("取消", role: .cancel) {}
         }
     }
 
@@ -119,13 +178,23 @@ struct DrawingView: View {
                 print("✅ SVG 已儲存: \(fileURL)")
                 exportURL = fileURL
                 showingShareSheet = true
+                let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
+                guard !ghOwner.isEmpty, !ghRepo.isEmpty, !token.isEmpty else {
+                    print("❌ GitHub 設定未完成：owner/repo/token 缺一不可")
+                    showUploadHint = true
+                    return
+                }
+                let pathInRepo: String = {
+                    let base = ghPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return base.isEmpty ? fileURL.lastPathComponent : "\(base)/\(fileURL.lastPathComponent)"
+                }()
                 uploadToGitHub(
                     fileURL: fileURL,
-                    repoOwner: "0mago0",
-                    repoName: "test-ios",
-                    branch: "handwriting",
-                    pathInRepo: "handwriting/\(fileURL.lastPathComponent)",
-                    token: "GitHub Personal Access Token with repo scope"
+                    repoOwner: ghOwner,
+                    repoName: ghRepo,
+                    branch: ghBranch,
+                    pathInRepo: pathInRepo,
+                    token: token
                 )
                 goToNextQuestion()
             } catch {
@@ -259,4 +328,61 @@ private func getFileSHAIfExists(repoOwner: String,
         }
         completion(sha)
     }.resume()
+}
+
+struct GitHubSettingsView: View {
+    @AppStorage(GHKeys.owner)  private var owner: String = ""
+    @AppStorage(GHKeys.repo)   private var repo: String = ""
+    @AppStorage(GHKeys.branch) private var branch: String = "main"
+    @AppStorage(GHKeys.prefix) private var prefix: String = "handwriting"
+
+    @State private var token: String = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
+    @Environment(\.dismiss) private var dismiss
+    @State private var showSaved = false
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Repository")) {
+                    TextField("Owner（使用者或組織）", text: $owner)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Repo 名稱", text: $repo)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Branch（預設 main）", text: $branch)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("路徑前綴（可留空）", text: $prefix)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+
+                Section(header: Text("認證")) {
+                    SecureField("GitHub Token (需 repo 權限)", text: $token)
+                    Text("建議使用 Fine-grained Token，對目標 repo 開啟 contents:write 權限。")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .navigationTitle("GitHub 設定")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("關閉") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("儲存") {
+                        KeychainHelper.save(key: GHKeys.tokenK, value: token)
+                        showSaved = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .alert("已儲存", isPresented: $showSaved) {
+                Button("OK", role: .cancel) {}
+            }
+        }
+    }
 }
