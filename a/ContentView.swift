@@ -52,6 +52,7 @@ struct DrawingView: View {
     @AppStorage(GHKeys.prefix) private var ghPrefix: String = "handwriting"
     @State private var showingSettings = false
     @State private var showUploadHint = false
+    @State private var showingProgressDialog = false
 
     var targetText: String {
         guard !questionBank.isEmpty else { return "題庫載入中..." }
@@ -114,6 +115,9 @@ struct DrawingView: View {
                             points.removeAll()
                             paths.removeAll()
                         }
+                        Button("進度") {
+                            showingProgressDialog = true
+                        }
                         Spacer()
                         Button("設定") {
                             // 若分享面板尚未關閉，先關閉以避免同時存在兩個 sheet 導致無法彈出
@@ -149,6 +153,18 @@ struct DrawingView: View {
         .alert("請先完成 GitHub 設定", isPresented: $showUploadHint) {
             Button("前往設定") { showingSettings = true }
             Button("取消", role: .cancel) {}
+        }
+        .confirmationDialog(
+            "目前進度：\(min(currentIndex + 1, max(1, questionBank.count))) / \(max(1, questionBank.count))",
+            isPresented: $showingProgressDialog,
+            titleVisibility: .visible
+        ) {
+            Button("重置進度（回到第 1 字）", role: .destructive) {
+                resetProgress()
+            }
+            Button("關閉", role: .cancel) { }
+        } message: {
+            Text(questionBank.isEmpty ? "題庫載入中..." : "目前目標：『\(questionBank[currentIndex])』")
         }
     }
 
@@ -213,6 +229,13 @@ struct DrawingView: View {
             // 存到 UserDefaults
             UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
         }
+        points.removeAll()
+        paths.removeAll()
+    }
+
+    func resetProgress() {
+        currentIndex = 0
+        UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
         points.removeAll()
         paths.removeAll()
     }
