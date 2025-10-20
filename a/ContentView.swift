@@ -316,20 +316,22 @@ struct DrawingView: View {
             do {
                 try svg.write(to: fileURL, atomically: true, encoding: .utf8)
                 print("✅ SVG 已儲存: \(fileURL)")
-                exportURL = fileURL
-                showingShareSheet = true
+                DispatchQueue.main.async {
+                    exportURL = fileURL
+                    showingShareSheet = true
+                }
                 let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
                 guard !ghOwner.isEmpty, !ghRepo.isEmpty, !token.isEmpty else {
                     print("❌ GitHub 設定未完成：owner/repo/token 缺一不可")
-                    // close any existing sheets so Settings can be presented cleanly
-                    showingShareSheet = false
-                    showingSettings = false
-                    // then present the upload hint which offers to open Settings
-                    showUploadHint = true
+                    DispatchQueue.main.async {
+                        showingShareSheet = false
+                        showingSettings = false
+                        showUploadHint = true
+                    }
                     return
                 }
                 let pathInRepo: String = {
-                    let base = ghPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let base = ghPrefix.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                     return base.isEmpty ? fileURL.lastPathComponent : "\(base)/\(fileURL.lastPathComponent)"
                 }()
                 uploadToGitHub(
@@ -375,18 +377,22 @@ struct DrawingView: View {
             do {
                 try svg.write(to: fileURL, atomically: true, encoding: .utf8)
                 print("✅ SVG (simple) 已儲存: \(fileURL)")
-                exportURL = fileURL
-                showingShareSheet = true
+                DispatchQueue.main.async {
+                    exportURL = fileURL
+                    showingShareSheet = true
+                }
                 let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
                 guard !ghOwner.isEmpty, !ghRepo.isEmpty, !token.isEmpty else {
                     print("❌ GitHub 設定未完成：owner/repo/token 缺一不可")
-                    showingShareSheet = false
-                    showingSettings = false
-                    showUploadHint = true
+                    DispatchQueue.main.async {
+                        showingShareSheet = false
+                        showingSettings = false
+                        showUploadHint = true
+                    }
                     return
                 }
                 let pathInRepo: String = {
-                    let base = ghPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let base = ghPrefix.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                     return base.isEmpty ? fileURL.lastPathComponent : "\(base)/\(fileURL.lastPathComponent)"
                 }()
                 uploadToGitHub(
@@ -561,7 +567,8 @@ private func uploadToGitHub(fileURL: URL,
                 payload["sha"] = sha // update
             }
 
-            guard let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/contents/\(pathInRepo)") else {
+            guard let encodedPath = encodeForGitHubPath(pathInRepo),
+                  let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/contents/\(encodedPath)") else {
                 print("❌ URL 生成失敗")
                 return
             }
@@ -599,7 +606,9 @@ private func getFileSHAIfExists(repoOwner: String,
                                 branch: String,
                                 token: String,
                                 completion: @escaping (String?) -> Void) {
-    guard let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/contents/\(pathInRepo)?ref=\(branch)") else {
+    guard let encodedPath = encodeForGitHubPath(pathInRepo),
+          let encodedBranch = branch.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+          let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/contents/\(encodedPath)?ref=\(encodedBranch)") else {
         completion(nil)
         return
     }
@@ -620,6 +629,17 @@ private func getFileSHAIfExists(repoOwner: String,
         }
         completion(sha)
     }.resume()
+}
+
+private func encodeForGitHubPath(_ path: String) -> String? {
+    let components = path.split(separator: "/").map(String.init)
+    var allowed = CharacterSet.urlPathAllowed
+    allowed.remove(charactersIn: "/")
+    let encoded = components.compactMap { component -> String? in
+        component.addingPercentEncoding(withAllowedCharacters: allowed)
+    }
+    guard encoded.count == components.count else { return nil }
+    return encoded.joined(separator: "/")
 }
 
 struct GitHubSettingsView: View {
