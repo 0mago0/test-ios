@@ -393,9 +393,11 @@ struct PKCanvasViewWrapper: UIViewRepresentable {
         let canvas = PKCanvasView()
         canvas.drawing = drawing
         canvas.isOpaque = false
-        canvas.backgroundColor = .white
+        // Use dynamic system background so dark mode renders correctly
+        canvas.backgroundColor = UIColor.systemBackground
         canvas.drawingPolicy = .anyInput
-        canvas.tool = PKInkingTool(.pen, color: .black, width: lineWidth)
+        // Use dynamic label color so strokes are visible in both light/dark
+        canvas.tool = PKInkingTool(.pen, color: UIColor.label, width: lineWidth)
         canvas.delegate = context.coordinator
         canvas.isScrollEnabled = false
         return canvas
@@ -405,7 +407,7 @@ struct PKCanvasViewWrapper: UIViewRepresentable {
         if uiView.drawing != drawing {
             uiView.drawing = drawing
         }
-        uiView.tool = PKInkingTool(.pen, color: .black, width: lineWidth)
+        uiView.tool = PKInkingTool(.pen, color: UIColor.label, width: lineWidth)
     }
     
     func makeCoordinator() -> Coordinator {
@@ -587,7 +589,7 @@ struct SimpleDrawingView: View {
                     for p in stroke.dropFirst() {
                         path.addLine(to: p.point)
                     }
-                    ctx.stroke(path, with: .color(.black), lineWidth: stroke.first?.force ?? lineWidth)
+                    ctx.stroke(path, with: .color(Color(UIColor.label)), lineWidth: stroke.first?.force ?? lineWidth)
                 }
 
                 // current stroke
@@ -597,7 +599,7 @@ struct SimpleDrawingView: View {
                     for p in currentStroke.dropFirst() {
                         path.addLine(to: p.point)
                     }
-                    ctx.stroke(path, with: .color(.black), lineWidth: currentStroke.first?.force ?? lineWidth)
+                    ctx.stroke(path, with: .color(Color(UIColor.label)), lineWidth: currentStroke.first?.force ?? lineWidth)
                 }
             }
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .local)
