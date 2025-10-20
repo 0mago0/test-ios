@@ -178,7 +178,10 @@ struct DrawingView: View {
                             }
                         }
                         Button("進度") {
-                            showingProgressDialog = true
+                            if showingShareSheet { showingShareSheet = false }
+                            DispatchQueue.main.async {
+                                showingProgressDialog = true
+                            }
                         }
                         Spacer()
                         Button("設定") {
@@ -216,21 +219,19 @@ struct DrawingView: View {
                 ActivityViewController(activityItems: [url])
             }
         }
+        .sheet(isPresented: $showingProgressDialog) {
+            ProgressSheetView(
+                currentIndex: currentIndex,
+                totalCount: questionBank.count,
+                currentCharacter: questionBank.isEmpty ? nil : questionBank[currentIndex],
+                onReset: {
+                    resetProgress()
+                }
+            )
+        }
         .alert("請先完成 GitHub 設定", isPresented: $showUploadHint) {
             Button("前往設定") { showingSettings = true }
             Button("取消", role: .cancel) {}
-        }
-        .confirmationDialog(
-            "目前進度：\(min(currentIndex + 1, max(1, questionBank.count))) / \(max(1, questionBank.count))",
-            isPresented: $showingProgressDialog,
-            titleVisibility: .visible
-        ) {
-            Button("重置進度（回到第 1 字）", role: .destructive) {
-                resetProgress()
-            }
-            Button("關閉", role: .cancel) { }
-        } message: {
-            Text(questionBank.isEmpty ? "題庫載入中..." : "目前目標：『\(questionBank[currentIndex])』")
         }
     }
 
@@ -420,17 +421,20 @@ struct DrawingView: View {
             // 存到 UserDefaults
             UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
         }
-        pkDrawing = PKDrawing()
-        simpleStrokes = []
-        currentSimpleStroke = []
+        clearDrawings()
     }
 
     func resetProgress() {
         currentIndex = 0
         UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
+        clearDrawings()
+    }
+
+    private func clearDrawings() {
         pkDrawing = PKDrawing()
         simpleStrokes = []
         currentSimpleStroke = []
+        showingProgressDialog = false
     }
 }
 
@@ -451,6 +455,55 @@ struct ActivityViewController: UIViewControllerRepresentable {
     
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
         // No update needed
+    }
+}
+
+// Simple progress sheet to avoid UIKit action sheet constraints
+struct ProgressSheetView: View {
+    let currentIndex: Int
+    let totalCount: Int
+    let currentCharacter: String?
+    let onReset: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text(progressText)
+                    .font(.title3)
+                    .bold()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let character = currentCharacter {
+                    Text("目前目標：『\(character)』")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("題庫載入中...")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(role: .destructive) {
+                    onReset()
+                    dismiss()
+                } label: {
+                    Text("重置進度（回到第 1 字）")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                Button("關閉") {
+                    dismiss()
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .padding()
+            .navigationTitle("目前進度")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var progressText: String {
+        let total = max(totalCount, 1)
+        return "進度：\(min(currentIndex + 1, total)) / \(total)"
     }
 }
 
