@@ -60,6 +60,10 @@ struct DrawingView: View {
     @State private var showUploadHint = false
     @State private var showingProgressDialog = false
     @State private var brushWidth: CGFloat = 5
+    @State private var usePencilKit: Bool = true
+    // Simple drawing data for non-PencilKit mode
+    @State private var simpleStrokes: [[StrokePoint]] = []
+    @State private var currentSimpleStroke: [StrokePoint] = []
 
     var targetText: String {
         guard !questionBank.isEmpty else { return "題庫載入中..." }
@@ -86,13 +90,33 @@ struct DrawingView: View {
                 // 下方 2/3：畫布 + 控制列
                 VStack(spacing: 0) {
                     VStack {
-                        PKCanvasViewWrapper(drawing: $pkDrawing, lineWidth: $brushWidth)
-                            .frame(width: 300, height: 300)
-                            .clipped()
-                            .overlay(
-                                Rectangle()
-                                    .stroke(Color(UIColor.separator), lineWidth: 1)
-                            )
+                        // 模式切換
+                        Picker("Mode", selection: $usePencilKit) {
+                            Text("PencilKit").tag(true)
+                            Text("原本寫法").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal)
+
+                        ZStack {
+                            if usePencilKit {
+                                PKCanvasViewWrapper(drawing: $pkDrawing, lineWidth: $brushWidth)
+                                    .frame(width: 300, height: 300)
+                                    .clipped()
+                                    .overlay(
+                                        Rectangle()
+                                            .stroke(Color(UIColor.separator), lineWidth: 1)
+                                    )
+                            } else {
+                                SimpleDrawingView(strokes: $simpleStrokes, currentStroke: $currentSimpleStroke, lineWidth: $brushWidth)
+                                    .frame(width: 300, height: 300)
+                                    .clipped()
+                                    .overlay(
+                                        Rectangle()
+                                            .stroke(Color(UIColor.separator), lineWidth: 1)
+                                    )
+                            }
+                        }
                     }
                     // 外層只負責留白與置中
                     .padding(.horizontal, 20)
@@ -112,7 +136,12 @@ struct DrawingView: View {
                     // 控制按鈕列
                     HStack {
                         Button("清除") {
-                            pkDrawing = PKDrawing()
+                            if usePencilKit {
+                                pkDrawing = PKDrawing()
+                            } else {
+                                simpleStrokes = []
+                                currentSimpleStroke = []
+                            }
                         }
                         Button("進度") {
                             showingProgressDialog = true
@@ -128,7 +157,11 @@ struct DrawingView: View {
                         }
                         Button("匯出SVG") {
                             let name = questionBank.isEmpty ? "handwriting" : questionBank[currentIndex]
-                            exportSVG(drawing: pkDrawing, fileName: name)
+                            if usePencilKit {
+                                exportSVG(drawing: pkDrawing, fileName: name)
+                            } else {
+                                exportSVGFromSimpleStrokes(strokes: simpleStrokes, fileName: name)
+                            }
                         }
                         Button("分享") {
                             if let _ = exportURL {
@@ -456,7 +489,6 @@ struct GitHubSettingsView: View {
     @State private var token: String = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
     @Environment(\.dismiss) private var dismiss
     @State private var showSaved = false
-
     var body: some View {
         NavigationView {
             Form {
@@ -500,6 +532,87 @@ struct GitHubSettingsView: View {
             .alert("已儲存", isPresented: $showSaved) {
                 Button("OK", role: .cancel) {}
             }
+        }
+    }
+}
+
+// MARK: - Simple SwiftUI Drawing (原本寫法)
+struct SimpleDrawingView: View {
+    @Binding var strokes: [[StrokePoint]]
+    @Binding var currentStroke: [StrokePoint]
+    @Binding var lineWidth: CGFloat
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { ctx, size in
+                // draw previous strokes
+                for stroke in strokes {
+                    var path = Path()
+                    guard !stroke.isEmpty else { continue }
+                    path.move(to: stroke[0].point)
+                    for p in stroke.dropFirst() {
+                        path.addLine(to: p.point)
+                    }
+                    ctx.stroke(path, with: .color(.black), lineWidth: stroke.first?.force ?? lineWidth)
+                }
+
+                // current stroke
+                if !currentStroke.isEmpty {
+                    var path = Path()
+                    path.move(to: currentStroke[0].point)
+                    for p in currentStroke.dropFirst() {
+                        path.addLine(to: p.point)
+                    }
+                    ctx.stroke(path, with: .color(.black), lineWidth: currentStroke.first?.force ?? lineWidth)
+                }
+            }
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                .onChanged { value in
+                    let force: CGFloat = value.predictedEndLocation == .zero ? lineWidth : lineWidth
+                    let pt = StrokePoint(point: value.location, force: force)
+                    currentStroke.append(pt)
+                }
+                .onEnded { _ in
+                    if !currentStroke.isEmpty {
+                        strokes.append(currentStroke)
+                        currentStroke = []
+                    }
+                }
+            )
+        }
+    }
+}
+
+// Export simple strokes to SVG (very basic polyline/polygon approach)
+func exportSVGFromSimpleStrokes(strokes: [[StrokePoint]], fileName: String) {
+    var svgShapes = ""
+    for stroke in strokes {
+        guard !stroke.isEmpty else { continue }
+        if stroke.count == 1 {
+            let p = stroke[0]
+            let r = max(0.5, p.force / 2)
+            svgShapes += "<circle cx=\"\(p.point.x)\" cy=\"\(p.point.y)\" r=\"\(r)\" fill=\"black\" />\n"
+            continue
+        }
+        var d = "M \(stroke[0].point.x) \(stroke[0].point.y) "
+        for i in 1..<stroke.count {
+            d += "L \(stroke[i].point.x) \(stroke[i].point.y) "
+        }
+        svgShapes += "<path d=\"\(d)\" stroke=\"black\" fill=\"none\" stroke-width=\"1\" />\n"
+    }
+    let svg = """
+    <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+    \(svgShapes)</svg>
+    """
+
+    let fileManager = FileManager.default
+    if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+        let fileURL = docDir.appendingPathComponent("\(fileName).svg")
+        do {
+            try svg.write(to: fileURL, atomically: true, encoding: .utf8)
+            print("✅ SVG (simple) 已儲存: \(fileURL)")
+        } catch {
+            print("❌ 儲存 SVG 失敗: \(error)")
         }
     }
 }
