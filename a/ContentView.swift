@@ -9,6 +9,34 @@ struct StrokePoint {
     var force: CGFloat
 }
 
+// Crosshair dashed lines for center guidance
+struct Crosshair: View {
+    var size: CGSize
+    var lineColor: Color = Color(UIColor.systemGray3)
+    var lineWidth: CGFloat = 1
+    var dash: [CGFloat] = [6, 6]
+
+    var body: some View {
+        Canvas { ctx, sz in
+            let w = size.width
+            let h = size.height
+            // horizontal
+            var hPath = Path()
+            hPath.move(to: CGPoint(x: 0, y: h / 2))
+            hPath.addLine(to: CGPoint(x: w, y: h / 2))
+            // vertical
+            var vPath = Path()
+            vPath.move(to: CGPoint(x: w / 2, y: 0))
+            vPath.addLine(to: CGPoint(x: w / 2, y: h))
+
+            let style = StrokeStyle(lineWidth: lineWidth, lineCap: .round, dash: dash)
+            ctx.stroke(hPath, with: .color(lineColor), style: style)
+            ctx.stroke(vPath, with: .color(lineColor), style: style)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 // MARK: - Keychain helper & keys
 enum KeychainHelper {
     static func save(key: String, value: String) {
@@ -104,16 +132,22 @@ struct DrawingView: View {
                                     .frame(width: 300, height: 300)
                                     .clipped()
                                     .overlay(
-                                        Rectangle()
-                                            .stroke(Color(UIColor.separator), lineWidth: 1)
+                                        ZStack {
+                                            Rectangle()
+                                                .stroke(Color(UIColor.separator), lineWidth: 1)
+                                            Crosshair(size: CGSize(width: 300, height: 300), lineColor: Color(UIColor.separator), lineWidth: 1, dash: [4,4])
+                                        }
                                     )
                             } else {
                                 SimpleDrawingView(strokes: $simpleStrokes, currentStroke: $currentSimpleStroke, lineWidth: $brushWidth)
                                     .frame(width: 300, height: 300)
                                     .clipped()
                                     .overlay(
-                                        Rectangle()
-                                            .stroke(Color(UIColor.separator), lineWidth: 1)
+                                        ZStack {
+                                            Rectangle()
+                                                .stroke(Color(UIColor.separator), lineWidth: 1)
+                                            Crosshair(size: CGSize(width: 300, height: 300), lineColor: Color(UIColor.separator), lineWidth: 1, dash: [4,4])
+                                        }
                                     )
                             }
                         }
