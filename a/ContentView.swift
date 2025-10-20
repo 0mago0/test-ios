@@ -1,6 +1,13 @@
+
 import SwiftUI
 import UIKit
 import Security
+import PencilKit
+
+struct StrokePoint {
+    var point: CGPoint
+    var force: CGFloat
+}
 
 // MARK: - Keychain helper & keys
 enum KeychainHelper {
@@ -40,8 +47,7 @@ enum GHKeys {
 }
 
 struct DrawingView: View {
-    @State private var points: [CGPoint] = []
-    @State private var paths: [[CGPoint]] = []
+    @State private var pkDrawing = PKDrawing()
     @State private var showingShareSheet = false
     @State private var exportURL: URL? = nil
     @State private var questionBank: [String] = []
@@ -53,6 +59,7 @@ struct DrawingView: View {
     @State private var showingSettings = false
     @State private var showUploadHint = false
     @State private var showingProgressDialog = false
+    @State private var brushWidth: CGFloat = 5
 
     var targetText: String {
         guard !questionBank.isEmpty else { return "題庫載入中..." }
@@ -79,54 +86,33 @@ struct DrawingView: View {
                 // 下方 2/3：畫布 + 控制列
                 VStack(spacing: 0) {
                     VStack {
-                        ZStack {
-                            Color.white
-                            Path { path in
-                                for stroke in paths {
-                                    if let first = stroke.first {
-                                        path.move(to: first)
-                                        for p in stroke.dropFirst() {
-                                            path.addLine(to: p)
-                                        }
-                                    }
-                                }
-                                if let first = points.first {
-                                    path.move(to: first)
-                                    for p in points.dropFirst() {
-                                        path.addLine(to: p)
-                                    }
-                                }
-                            }
-                            .stroke(Color.black, lineWidth: 2)
-                        }
-                        .frame(width: 300, height: 300)
-                        .clipped()
-                        .overlay(
-                            Rectangle()
-                                .stroke(Color(UIColor.separator), lineWidth: 1)
-                        )
-                        .contentShape(Rectangle())
-                        // 將手勢綁在 400×400 的內層畫布，保證外圍留白不可書寫
-                        .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { value in
-                                    points.append(value.location)
-                                }
-                                .onEnded { _ in
-                                    paths.append(points)
-                                    points.removeAll()
-                                }
-                        )
+                        PKCanvasViewWrapper(drawing: $pkDrawing, lineWidth: $brushWidth)
+                            .frame(width: 300, height: 300)
+                            .clipped()
+                            .overlay(
+                                Rectangle()
+                                    .stroke(Color(UIColor.separator), lineWidth: 1)
+                            )
                     }
-                    // 外層只負責留白與置中，沒有手勢，不可書寫
+                    // 外層只負責留白與置中
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
+
+                    HStack(spacing: 12) {
+                        Text("粗細")
+                        Slider(value: $brushWidth, in: 1...20, step: 1)
+                            .frame(maxWidth: 220)
+                        Text("\(Int(brushWidth)) pt")
+                            .monospacedDigit()
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 4)
 
                     // 控制按鈕列
                     HStack {
                         Button("清除") {
-                            points.removeAll()
-                            paths.removeAll()
+                            pkDrawing = PKDrawing()
                         }
                         Button("進度") {
                             showingProgressDialog = true
@@ -142,7 +128,7 @@ struct DrawingView: View {
                         }
                         Button("匯出SVG") {
                             let name = questionBank.isEmpty ? "handwriting" : questionBank[currentIndex]
-                            exportSVG(paths: paths, fileName: name)
+                            exportSVG(drawing: pkDrawing, fileName: name)
                         }
                         Button("分享") {
                             if let _ = exportURL {
@@ -182,23 +168,81 @@ struct DrawingView: View {
     }
 
     // 匯出 SVG
-    func exportSVG(paths: [[CGPoint]], fileName: String) {
-        var svgPaths = ""
-        for stroke in paths {
-            if let first = stroke.first {
-                svgPaths += "M \(first.x) \(first.y) "
-                for p in stroke.dropFirst() {
-                    svgPaths += "L \(p.x) \(p.y) "
+    func exportSVG(drawing: PKDrawing, fileName: String) {
+        let maxLineWidth: CGFloat = 10 // 與畫布筆刷寬度基準一致
+        var svgShapes = ""
+        
+        for stroke in drawing.strokes {
+            let path = stroke.path
+            var points: [PKStrokePoint] = []
+            path.forEach { p in
+                points.append(p)
+            }
+            guard !points.isEmpty else { continue }
+
+            // 單點筆劃：輸出為單一圓形
+            if points.count == 1, let p = points.first {
+                let r = max(0.25, p.size.width / 2)
+                svgShapes += "<circle cx=\"\(p.location.x)\" cy=\"\(p.location.y)\" r=\"\(r)\" fill=\"black\" />\n"
+                continue
+            }
+
+            // 多點筆劃：構建單一封閉多邊形 path
+            var leftEdge: [CGPoint] = []
+            var rightEdge: [CGPoint] = []
+            let n = points.count
+
+            func tangent(at i: Int) -> CGPoint {
+                if i == 0 {
+                    let a = points[0].location
+                    let b = points[1].location
+                    return CGPoint(x: b.x - a.x, y: b.y - a.y)
+                } else if i == n - 1 {
+                    let a = points[n - 2].location
+                    let b = points[n - 1].location
+                    return CGPoint(x: b.x - a.x, y: b.y - a.y)
+                } else {
+                    let a = points[i - 1].location
+                    let c = points[i + 1].location
+                    return CGPoint(x: c.x - a.x, y: c.y - a.y)
                 }
             }
-        }
 
+            for i in 0..<n {
+                let p = points[i]
+                var t = tangent(at: i)
+                let len = max(0.0001, sqrt(t.x * t.x + t.y * t.y))
+                t.x /= len; t.y /= len
+                let nx = -t.y
+                let ny =  t.x
+                let w = max(0.5, p.size.width)
+                let off = w / 2.0
+                let lx = p.location.x + nx * off
+                let ly = p.location.y + ny * off
+                let rx = p.location.x - nx * off
+                let ry = p.location.y - ny * off
+                leftEdge.append(CGPoint(x: lx, y: ly))
+                rightEdge.append(CGPoint(x: rx, y: ry))
+            }
+
+            // 封閉路徑：左邊正向，右邊反向
+            var d = "M \(leftEdge[0].x) \(leftEdge[0].y) "
+            for i in 1..<leftEdge.count {
+                d += "L \(leftEdge[i].x) \(leftEdge[i].y) "
+            }
+            for i in stride(from: rightEdge.count - 1, through: 0, by: -1) {
+                d += "L \(rightEdge[i].x) \(rightEdge[i].y) "
+            }
+            d += "Z"
+
+            svgShapes += "<path d=\"\(d)\" fill=\"black\" />\n"
+        }
+        
         let svg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
-            <path d="\(svgPaths)" fill="none" stroke="black" stroke-width="2"/>
-        </svg>
+        \(svgShapes)</svg>
         """
-
+        
         let fileManager = FileManager.default
         if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
             let fileURL = docDir.appendingPathComponent("\(fileName).svg")
@@ -242,15 +286,13 @@ struct DrawingView: View {
             // 存到 UserDefaults
             UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
         }
-        points.removeAll()
-        paths.removeAll()
+        pkDrawing = PKDrawing()
     }
 
     func resetProgress() {
         currentIndex = 0
         UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
-        points.removeAll()
-        paths.removeAll()
+        pkDrawing = PKDrawing()
     }
 }
 
@@ -271,6 +313,45 @@ struct ActivityViewController: UIViewControllerRepresentable {
     
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
         // No update needed
+    }
+}
+
+
+// MARK: - PencilKit Canvas Wrapper
+struct PKCanvasViewWrapper: UIViewRepresentable {
+    @Binding var drawing: PKDrawing
+    @Binding var lineWidth: CGFloat
+    
+    func makeUIView(context: Context) -> PKCanvasView {
+        let canvas = PKCanvasView()
+        canvas.drawing = drawing
+        canvas.isOpaque = false
+        canvas.backgroundColor = .white
+        canvas.drawingPolicy = .anyInput
+        canvas.tool = PKInkingTool(.pen, color: .black, width: lineWidth)
+        canvas.delegate = context.coordinator
+        canvas.isScrollEnabled = false
+        return canvas
+    }
+    
+    func updateUIView(_ uiView: PKCanvasView, context: Context) {
+        if uiView.drawing != drawing {
+            uiView.drawing = drawing
+        }
+        uiView.tool = PKInkingTool(.pen, color: .black, width: lineWidth)
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    final class Coordinator: NSObject, PKCanvasViewDelegate {
+        var parent: PKCanvasViewWrapper
+        init(_ parent: PKCanvasViewWrapper) { self.parent = parent }
+        
+        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            parent.drawing = canvasView.drawing
+        }
     }
 }
 
