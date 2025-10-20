@@ -347,6 +347,63 @@ struct DrawingView: View {
         }
     }
 
+    func exportSVGFromSimpleStrokes(strokes: [[StrokePoint]], fileName: String) {
+        var svgShapes = ""
+        for stroke in strokes {
+            guard !stroke.isEmpty else { continue }
+            if stroke.count == 1 {
+                let p = stroke[0]
+                let r = max(0.5, p.force / 2)
+                svgShapes += "<circle cx=\"\(p.point.x)\" cy=\"\(p.point.y)\" r=\"\(r)\" fill=\"black\" />\n"
+                continue
+            }
+            var d = "M \(stroke[0].point.x) \(stroke[0].point.y) "
+            for i in 1..<stroke.count {
+                d += "L \(stroke[i].point.x) \(stroke[i].point.y) "
+            }
+            svgShapes += "<path d=\"\(d)\" stroke=\"black\" fill=\"none\" stroke-width=\"1\" />\n"
+        }
+
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+        \(svgShapes)</svg>
+        """
+
+        let fileManager = FileManager.default
+        if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let fileURL = docDir.appendingPathComponent("\(fileName).svg")
+            do {
+                try svg.write(to: fileURL, atomically: true, encoding: .utf8)
+                print("✅ SVG (simple) 已儲存: \(fileURL)")
+                exportURL = fileURL
+                showingShareSheet = true
+                let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
+                guard !ghOwner.isEmpty, !ghRepo.isEmpty, !token.isEmpty else {
+                    print("❌ GitHub 設定未完成：owner/repo/token 缺一不可")
+                    showingShareSheet = false
+                    showingSettings = false
+                    showUploadHint = true
+                    return
+                }
+                let pathInRepo: String = {
+                    let base = ghPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return base.isEmpty ? fileURL.lastPathComponent : "\(base)/\(fileURL.lastPathComponent)"
+                }()
+                uploadToGitHub(
+                    fileURL: fileURL,
+                    repoOwner: ghOwner,
+                    repoName: ghRepo,
+                    branch: ghBranch,
+                    pathInRepo: pathInRepo,
+                    token: token
+                )
+                goToNextQuestion()
+            } catch {
+                print("❌ 儲存 SVG 失敗: \(error)")
+            }
+        }
+    }
+
     func goToNextQuestion() {
         if !questionBank.isEmpty {
             if currentIndex < questionBank.count - 1 {
@@ -358,12 +415,16 @@ struct DrawingView: View {
             UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
         }
         pkDrawing = PKDrawing()
+        simpleStrokes = []
+        currentSimpleStroke = []
     }
 
     func resetProgress() {
         currentIndex = 0
         UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
         pkDrawing = PKDrawing()
+        simpleStrokes = []
+        currentSimpleStroke = []
     }
 }
 
@@ -666,38 +727,3 @@ struct SimpleDrawingView: View {
         }
     }
 }
-
-// Export simple strokes to SVG (very basic polyline/polygon approach)
-func exportSVGFromSimpleStrokes(strokes: [[StrokePoint]], fileName: String) {
-    var svgShapes = ""
-    for stroke in strokes {
-        guard !stroke.isEmpty else { continue }
-        if stroke.count == 1 {
-            let p = stroke[0]
-            let r = max(0.5, p.force / 2)
-            svgShapes += "<circle cx=\"\(p.point.x)\" cy=\"\(p.point.y)\" r=\"\(r)\" fill=\"black\" />\n"
-            continue
-        }
-        var d = "M \(stroke[0].point.x) \(stroke[0].point.y) "
-        for i in 1..<stroke.count {
-            d += "L \(stroke[i].point.x) \(stroke[i].point.y) "
-        }
-        svgShapes += "<path d=\"\(d)\" stroke=\"black\" fill=\"none\" stroke-width=\"1\" />\n"
-    }
-    let svg = """
-    <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
-    \(svgShapes)</svg>
-    """
-
-    let fileManager = FileManager.default
-    if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
-        let fileURL = docDir.appendingPathComponent("\(fileName).svg")
-        do {
-            try svg.write(to: fileURL, atomically: true, encoding: .utf8)
-            print("✅ SVG (simple) 已儲存: \(fileURL)")
-        } catch {
-            print("❌ 儲存 SVG 失敗: \(error)")
-        }
-    }
-}
-
