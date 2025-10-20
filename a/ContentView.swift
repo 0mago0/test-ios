@@ -56,7 +56,7 @@ struct DrawingView: View {
 
     var targetText: String {
         guard !questionBank.isEmpty else { return "題庫載入中..." }
-        return "請仿寫：" + questionBank[currentIndex]
+        return "請寫：" + questionBank[currentIndex]
     }
 
     init() {
@@ -78,36 +78,49 @@ struct DrawingView: View {
 
                 // 下方 2/3：畫布 + 控制列
                 VStack(spacing: 0) {
-                    ZStack {
-                        Color.white
-                        Path { path in
-                            for stroke in paths {
-                                if let first = stroke.first {
+                    VStack {
+                        ZStack {
+                            Color.white
+                            Path { path in
+                                for stroke in paths {
+                                    if let first = stroke.first {
+                                        path.move(to: first)
+                                        for p in stroke.dropFirst() {
+                                            path.addLine(to: p)
+                                        }
+                                    }
+                                }
+                                if let first = points.first {
                                     path.move(to: first)
-                                    for p in stroke.dropFirst() {
+                                    for p in points.dropFirst() {
                                         path.addLine(to: p)
                                     }
                                 }
                             }
-                            if let first = points.first {
-                                path.move(to: first)
-                                for p in points.dropFirst() {
-                                    path.addLine(to: p)
-                                }
-                            }
+                            .stroke(Color.black, lineWidth: 2)
                         }
-                        .stroke(Color.black, lineWidth: 2)
+                        .frame(width: 300, height: 300)
+                        .clipped()
+                        .overlay(
+                            Rectangle()
+                                .stroke(Color(UIColor.separator), lineWidth: 1)
+                        )
+                        .contentShape(Rectangle())
+                        // 將手勢綁在 400×400 的內層畫布，保證外圍留白不可書寫
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    points.append(value.location)
+                                }
+                                .onEnded { _ in
+                                    paths.append(points)
+                                    points.removeAll()
+                                }
+                        )
                     }
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                points.append(value.location)
-                            }
-                            .onEnded { _ in
-                                paths.append(points)
-                                points.removeAll()
-                            }
-                    )
+                    // 外層只負責留白與置中，沒有手勢，不可書寫
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
 
                     // 控制按鈕列
                     HStack {
@@ -181,7 +194,7 @@ struct DrawingView: View {
         }
 
         let svg = """
-        <svg xmlns="http://www.w3.org/2000/svg" width="400" height="800" viewBox="0 0 400 800">
+        <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
             <path d="\(svgPaths)" fill="none" stroke="black" stroke-width="2"/>
         </svg>
         """
@@ -409,3 +422,4 @@ struct GitHubSettingsView: View {
         }
     }
 }
+
