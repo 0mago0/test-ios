@@ -321,6 +321,10 @@ struct DrawingView: View {
                 let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
                 guard !ghOwner.isEmpty, !ghRepo.isEmpty, !token.isEmpty else {
                     print("❌ GitHub 設定未完成：owner/repo/token 缺一不可")
+                    // close any existing sheets so Settings can be presented cleanly
+                    showingShareSheet = false
+                    showingSettings = false
+                    // then present the upload hint which offers to open Settings
                     showUploadHint = true
                     return
                 }
