@@ -89,6 +89,9 @@ struct DrawingView: View {
     @State private var showingProgressDialog = false
     @State private var brushWidth: CGFloat = 5
     @State private var usePencilKit: Bool = true
+    @State private var completedCharacters: Set<String> = []
+    @State private var isLoadingCompletions = false
+    @State private var completionError: String? = nil
     // Simple drawing data for non-PencilKit mode
     @State private var simpleStrokes: [[StrokePoint]] = []
     @State private var currentSimpleStroke: [StrokePoint] = []
@@ -179,6 +182,7 @@ struct DrawingView: View {
                         }
                         Button("進度") {
                             if showingShareSheet { showingShareSheet = false }
+                            refreshCompletionStatus(force: true)
                             DispatchQueue.main.async {
                                 showingProgressDialog = true
                             }
@@ -222,10 +226,18 @@ struct DrawingView: View {
         .sheet(isPresented: $showingProgressDialog) {
             ProgressSheetView(
                 currentIndex: currentIndex,
-                totalCount: questionBank.count,
-                currentCharacter: questionBank.isEmpty ? nil : questionBank[currentIndex],
+                questions: questionBank,
+                completedCharacters: completedCharacters,
+                isLoading: isLoadingCompletions,
+                errorMessage: completionError,
+                onSelect: { index in
+                    jumpToQuestion(index: index)
+                },
                 onReset: {
                     resetProgress()
+                },
+                onRefresh: {
+                    refreshCompletionStatus(force: true)
                 }
             )
         }
@@ -317,8 +329,9 @@ struct DrawingView: View {
             do {
                 try svg.write(to: fileURL, atomically: true, encoding: .utf8)
                 print("✅ SVG 已儲存: \(fileURL)")
+                let shareURL = makeShareCopyForSharing(of: fileURL, originalName: fileName) ?? fileURL
                 DispatchQueue.main.async {
-                    exportURL = fileURL
+                    exportURL = shareURL
                     showingShareSheet = true
                 }
                 let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
@@ -378,8 +391,9 @@ struct DrawingView: View {
             do {
                 try svg.write(to: fileURL, atomically: true, encoding: .utf8)
                 print("✅ SVG (simple) 已儲存: \(fileURL)")
+                let shareURL = makeShareCopyForSharing(of: fileURL, originalName: fileName) ?? fileURL
                 DispatchQueue.main.async {
-                    exportURL = fileURL
+                    exportURL = shareURL
                     showingShareSheet = true
                 }
                 let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
@@ -407,6 +421,60 @@ struct DrawingView: View {
                 goToNextQuestion()
             } catch {
                 print("❌ 儲存 SVG 失敗: \(error)")
+            }
+        }
+    }
+
+    func jumpToQuestion(index: Int) {
+        guard !questionBank.isEmpty else { return }
+        let clamped = max(0, min(index, questionBank.count - 1))
+        if currentIndex != clamped {
+            currentIndex = clamped
+            UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
+        }
+        clearDrawings()
+    }
+
+    func refreshCompletionStatus(force: Bool = false) {
+        if isLoadingCompletions && !force { return }
+        let owner = ghOwner.trimmingCharacters(in: .whitespacesAndNewlines)
+        let repo = ghRepo.trimmingCharacters(in: .whitespacesAndNewlines)
+        let branch = ghBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "main" : ghBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = ghPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
+
+        guard !owner.isEmpty, !repo.isEmpty else {
+            completionError = "請先完成 GitHub 設定"
+            completedCharacters = []
+            return
+        }
+        guard !token.isEmpty else {
+            completionError = "找不到 GitHub Token"
+            completedCharacters = []
+            return
+        }
+
+        isLoadingCompletions = true
+        completionError = nil
+
+        listGitHubSVGs(
+            owner: owner,
+            repo: repo,
+            branch: branch,
+            prefix: prefix,
+            token: token
+        ) { result in
+            DispatchQueue.main.async {
+                self.isLoadingCompletions = false
+                switch result {
+                case .success(let names):
+                    let valid = names.filter { self.questionBank.contains($0) }
+                    self.completedCharacters = Set(valid)
+                    self.completionError = nil
+                case .failure(let error):
+                    self.completionError = error.localizedDescription
+                }
             }
         }
     }
@@ -458,52 +526,114 @@ struct ActivityViewController: UIViewControllerRepresentable {
     }
 }
 
-// Simple progress sheet to avoid UIKit action sheet constraints
+// Progress sheet with selectable targets and GitHub completion hints
 struct ProgressSheetView: View {
     let currentIndex: Int
-    let totalCount: Int
-    let currentCharacter: String?
+    let questions: [String]
+    let completedCharacters: Set<String>
+    let isLoading: Bool
+    let errorMessage: String?
+    let onSelect: (Int) -> Void
     let onReset: () -> Void
+    let onRefresh: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 20) {
-                Text(progressText)
-                    .font(.title3)
-                    .bold()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if let character = currentCharacter {
-                    Text("目前目標：『\(character)』")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text("題庫載入中...")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .foregroundColor(.secondary)
+            List {
+                Section {
+                    Text(progressText)
+                        .font(.headline)
+                    if let character = currentCharacter {
+                        Text("目前目標：『\(character)』")
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("題庫載入中...")
+                            .foregroundColor(.secondary)
+                    }
                 }
-                Spacer()
-                Button(role: .destructive) {
-                    onReset()
-                    dismiss()
-                } label: {
-                    Text("重置進度（回到第 1 字）")
-                        .frame(maxWidth: .infinity)
+
+                if let errorMessage {
+                    Section("GitHub 狀態") {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                        Button("重新整理") {
+                            onRefresh()
+                        }
+                    }
+                } else if isLoading {
+                    Section("GitHub 狀態") {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                Button("關閉") {
-                    dismiss()
+
+                Section("題目列表") {
+                    if questions.isEmpty {
+                        Text("題庫載入中...")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(Array(questions.enumerated()), id: \.0) { index, char in
+                            Button {
+                                onSelect(index)
+                                dismiss()
+                            } label: {
+                                HStack {
+                                    Text("\(index + 1). \(char)")
+                                    Spacer()
+                                    if completedCharacters.contains(char) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                    }
+                                    if index == currentIndex {
+                                        Text("目前")
+                                            .font(.caption)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 3)
+                                            .background(Color.accentColor.opacity(0.15))
+                                            .cornerRadius(6)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity)
+
+                Section {
+                    Button(role: .destructive) {
+                        onReset()
+                        dismiss()
+                    } label: {
+                        Text("重置進度（回到第 1 字）")
+                    }
+                    Button("關閉") {
+                        dismiss()
+                    }
+                }
             }
-            .padding()
+            .listStyle(.insetGrouped)
             .navigationTitle("目前進度")
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("重新整理") {
+                        onRefresh()
+                    }
+                }
+            }
         }
     }
 
     private var progressText: String {
-        let total = max(totalCount, 1)
+        let total = max(questions.count, 1)
         return "進度：\(min(currentIndex + 1, total)) / \(total)"
+    }
+
+    private var currentCharacter: String? {
+        guard currentIndex >= 0, currentIndex < questions.count else { return nil }
+        return questions[currentIndex]
     }
 }
 
@@ -693,6 +823,118 @@ private func encodeForGitHubPath(_ path: String) -> String? {
     }
     guard encoded.count == components.count else { return nil }
     return encoded.joined(separator: "/")
+}
+
+private func makeShareCopyForSharing(of originalURL: URL, originalName: String) -> URL? {
+    let sanitizedName = sanitizedShareFileName(from: originalName) + ".svg"
+    let shareURL = originalURL.deletingLastPathComponent().appendingPathComponent(sanitizedName)
+    if shareURL == originalURL { return originalURL }
+    do {
+        if FileManager.default.fileExists(atPath: shareURL.path) {
+            try FileManager.default.removeItem(at: shareURL)
+        }
+        try FileManager.default.copyItem(at: originalURL, to: shareURL)
+        return shareURL
+    } catch {
+        print("⚠️ Share copy failed: \(error)")
+        return nil
+    }
+}
+
+private func sanitizedShareFileName(from original: String) -> String {
+    let transformed = original
+        .applyingTransform(.toLatin, reverse: false)?
+        .applyingTransform(.stripCombiningMarks, reverse: false) ?? original
+    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+    var result = ""
+    for scalar in transformed.unicodeScalars {
+        if allowed.contains(scalar) {
+            result.append(Character(scalar))
+        } else if CharacterSet.whitespaces.contains(scalar) {
+            result.append("-")
+        }
+    }
+    if result.isEmpty {
+        result = "export"
+    }
+    return result
+}
+
+private func listGitHubSVGs(owner: String,
+                            repo: String,
+                            branch: String,
+                            prefix: String,
+                            token: String,
+                            completion: @escaping (Result<[String], Error>) -> Void) {
+    let trimmedPrefix = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+    let encodedBranch = branch.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? branch
+    var urlString: String
+    if trimmedPrefix.isEmpty {
+        urlString = "https://api.github.com/repos/\(owner)/\(repo)/contents?ref=\(encodedBranch)"
+    } else if let encodedPath = encodeForGitHubPath(trimmedPrefix) {
+        urlString = "https://api.github.com/repos/\(owner)/\(repo)/contents/\(encodedPath)?ref=\(encodedBranch)"
+    } else {
+        completion(.failure(SimpleError("無法處理 GitHub 路徑：\(trimmedPrefix)")))
+        return
+    }
+
+    guard let url = URL(string: urlString) else {
+        completion(.failure(SimpleError("GitHub URL 生成失敗")))
+        return
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.addValue("token \(token)", forHTTPHeaderField: "Authorization")
+    request.addValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+    URLSession.shared.dataTask(with: request) { data, response, error in
+        if let error = error {
+            completion(.failure(error))
+            return
+        }
+        guard let http = response as? HTTPURLResponse else {
+            completion(.failure(SimpleError("未知的 GitHub 回應")))
+            return
+        }
+        guard http.statusCode == 200, let data = data else {
+            let message = data.flatMap { String(data: $0, encoding: .utf8) } ?? "HTTP \(http.statusCode)"
+            completion(.failure(SimpleError("GitHub 讀取失敗：\(message)")))
+            return
+        }
+
+        do {
+            let json = try JSONSerialization.jsonObject(with: data)
+            var svgNames: [String] = []
+            if let array = json as? [[String: Any]] {
+                svgNames = array.compactMap { item in
+                    guard let type = item["type"] as? String,
+                          type == "file",
+                          let name = item["name"] as? String,
+                          name.lowercased().hasSuffix(".svg") else { return nil }
+                    return String(name.dropLast(4))
+                }
+            } else if let dict = json as? [String: Any],
+                      let type = dict["type"] as? String,
+                      type == "file",
+                      let name = dict["name"] as? String,
+                      name.lowercased().hasSuffix(".svg") {
+                svgNames = [String(name.dropLast(4))]
+            } else {
+                completion(.failure(SimpleError("解析 GitHub 回應失敗")))
+                return
+            }
+            completion(.success(svgNames))
+        } catch {
+            completion(.failure(error))
+        }
+    }.resume()
+}
+
+private struct SimpleError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
 }
 
 struct GitHubSettingsView: View {
