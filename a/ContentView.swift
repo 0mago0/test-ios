@@ -4,6 +4,8 @@ import UIKit
 import Security
 import PencilKit
 
+// MARK: - 字分組（可自行編輯）
+
 struct StrokePoint {
     var point: CGPoint
     var force: CGFloat
@@ -32,6 +34,16 @@ struct Crosshair: View {
             let style = StrokeStyle(lineWidth: lineWidth, lineCap: .round, dash: dash)
             ctx.stroke(hPath, with: .color(lineColor), style: style)
             ctx.stroke(vPath, with: .color(lineColor), style: style)
+
+            // dashed concentric squares
+            let center = CGPoint(x: w/2, y: h/2)
+            let sizes: [CGFloat] = [150, 225]
+            for s in sizes {
+                var sq = Path()
+                let origin = CGPoint(x: center.x - s/2, y: center.y - s/2)
+                sq.addRect(CGRect(x: origin.x, y: origin.y, width: s, height: s))
+                ctx.stroke(sq, with: .color(lineColor), style: style)
+            }
         }
         .allowsHitTesting(false)
     }
@@ -79,6 +91,7 @@ struct DrawingView: View {
     @State private var showingShareSheet = false
     @State private var exportURL: URL? = nil
     @State private var questionBank: [String] = []
+    @State private var selectedGroup: String = handwritingGroups.first?.name ?? ""
     @State private var currentIndex: Int = UserDefaults.standard.integer(forKey: "CurrentIndex") // 讀取存檔
     @AppStorage(GHKeys.owner)  private var ghOwner: String = ""
     @AppStorage(GHKeys.repo)   private var ghRepo: String = ""
@@ -102,7 +115,8 @@ struct DrawingView: View {
     }
 
     init() {
-        self._questionBank = State(initialValue: commonChineseCharacters2500.map { String($0) })
+        let initial = handwritingGroups.first?.characters ?? []
+        self._questionBank = State(initialValue: initial)
     }
 
     var body: some View {
@@ -121,6 +135,23 @@ struct DrawingView: View {
                 // 下方 2/3：畫布 + 控制列
                 VStack(spacing: 0) {
                     VStack {
+                        // 分組選擇
+                        Picker("分組", selection: $selectedGroup) {
+                            ForEach(handwritingGroups.map { $0.name }, id: \.self) { name in
+                                Text(name).tag(name)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal)
+                        .onChange(of: selectedGroup) { newValue in
+                            if let group = handwritingGroups.first(where: { $0.name == newValue }) {
+                                questionBank = group.characters
+                                currentIndex = 0
+                                UserDefaults.standard.set(0, forKey: "CurrentIndex")
+                                clearDrawings()
+                            }
+                        }
+
                         // 模式切換
                         Picker("Mode", selection: $usePencilKit) {
                             Text("PencilKit").tag(true)
@@ -225,6 +256,7 @@ struct DrawingView: View {
         }
         .sheet(isPresented: $showingProgressDialog) {
             ProgressSheetView(
+                selectedGroup: $selectedGroup,
                 currentIndex: currentIndex,
                 questions: questionBank,
                 completedCharacters: completedCharacters,
@@ -249,75 +281,27 @@ struct DrawingView: View {
 
     // 匯出 SVG
     func exportSVG(drawing: PKDrawing, fileName: String) {
-        let maxLineWidth: CGFloat = 10 // 與畫布筆刷寬度基準一致
         var svgShapes = ""
-        
-        for stroke in drawing.strokes {
-            let path = stroke.path
-            var points: [PKStrokePoint] = []
-            path.forEach { p in
-                points.append(p)
-            }
-            guard !points.isEmpty else { continue }
 
-            // 單點筆劃：輸出為單一圓形
-            if points.count == 1, let p = points.first {
-                let r = max(0.25, p.size.width / 2)
-                svgShapes += "<circle cx=\"\(p.location.x)\" cy=\"\(p.location.y)\" r=\"\(r)\" fill=\"black\" />\n"
+        for stroke in drawing.strokes {
+            let samples = interpolatedPoints(from: stroke.path)
+            guard !samples.isEmpty else { continue }
+            if samples.count == 1 {
+                let point = samples[0]
+                let radius = max(0.5, point.size.width / 2)
+                svgShapes += "<circle cx=\"\(svgNumber(point.location.x))\" cy=\"\(svgNumber(point.location.y))\" r=\"\(svgNumber(radius))\" fill=\"black\" />\n"
                 continue
             }
 
-            // 多點筆劃：構建單一封閉多邊形 path
-            var leftEdge: [CGPoint] = []
-            var rightEdge: [CGPoint] = []
-            let n = points.count
-
-            func tangent(at i: Int) -> CGPoint {
-                if i == 0 {
-                    let a = points[0].location
-                    let b = points[1].location
-                    return CGPoint(x: b.x - a.x, y: b.y - a.y)
-                } else if i == n - 1 {
-                    let a = points[n - 2].location
-                    let b = points[n - 1].location
-                    return CGPoint(x: b.x - a.x, y: b.y - a.y)
-                } else {
-                    let a = points[i - 1].location
-                    let c = points[i + 1].location
-                    return CGPoint(x: c.x - a.x, y: c.y - a.y)
-                }
-            }
-
-            for i in 0..<n {
-                let p = points[i]
-                var t = tangent(at: i)
-                let len = max(0.0001, sqrt(t.x * t.x + t.y * t.y))
-                t.x /= len; t.y /= len
-                let nx = -t.y
-                let ny =  t.x
-                let w = max(0.5, p.size.width)
-                let off = w / 2.0
-                let lx = p.location.x + nx * off
-                let ly = p.location.y + ny * off
-                let rx = p.location.x - nx * off
-                let ry = p.location.y - ny * off
-                leftEdge.append(CGPoint(x: lx, y: ly))
-                rightEdge.append(CGPoint(x: rx, y: ry))
-            }
-
-            // 封閉路徑：左邊正向，右邊反向
-            var d = "M \(leftEdge[0].x) \(leftEdge[0].y) "
-            for i in 1..<leftEdge.count {
-                d += "L \(leftEdge[i].x) \(leftEdge[i].y) "
-            }
-            for i in stride(from: rightEdge.count - 1, through: 0, by: -1) {
-                d += "L \(rightEdge[i].x) \(rightEdge[i].y) "
-            }
-            d += "Z"
-
-            svgShapes += "<path d=\"\(d)\" fill=\"black\" />\n"
+            guard let filledPath = filledCGPath(for: samples) else { continue }
+            let d = svgPathData(from: filledPath)
+            svgShapes += """
+<path d="\(d)"
+      fill="black"
+      fill-rule="nonzero" />
+"""
         }
-        
+
         let svg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
         \(svgShapes)</svg>
@@ -377,7 +361,8 @@ struct DrawingView: View {
             for i in 1..<stroke.count {
                 d += "L \(stroke[i].point.x) \(stroke[i].point.y) "
             }
-            svgShapes += "<path d=\"\(d)\" stroke=\"black\" fill=\"none\" stroke-width=\"1\" />\n"
+            let width = max(0.5, stroke.first?.force ?? 1)
+            svgShapes += "<path d=\"\(d)\" stroke=\"black\" fill=\"none\" stroke-width=\"\(width)\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />\n"
         }
 
         let svg = """
@@ -498,11 +483,80 @@ struct DrawingView: View {
         clearDrawings()
     }
 
-    private func clearDrawings() {
+    func clearDrawings() {
         pkDrawing = PKDrawing()
         simpleStrokes = []
         currentSimpleStroke = []
         showingProgressDialog = false
+    }
+    
+    private func interpolatedPoints(from path: PKStrokePath) -> [PKStrokePoint] {
+        if #available(iOS 14.0, *) {
+            let slice = path.interpolatedPoints(in: nil, by: .distance(1))
+            let interpolated = Array(slice)
+            if !interpolated.isEmpty {
+                return interpolated
+            }
+        }
+        return Array(path)
+    }
+    
+    private func filledCGPath(for points: [PKStrokePoint]) -> CGPath? {
+        guard points.count > 1 else { return nil }
+        let union = CGMutablePath()
+        var added = false
+        for idx in 0..<(points.count - 1) {
+            let current = points[idx]
+            let next = points[idx + 1]
+            let dx = next.location.x - current.location.x
+            let dy = next.location.y - current.location.y
+            let distance = hypot(dx, dy)
+            if distance < 0.05 { continue }
+            let segment = CGMutablePath()
+            segment.move(to: current.location)
+            segment.addLine(to: next.location)
+            let width = max(0.5, (current.size.width + next.size.width) / 2)
+            let stroked = segment.copy(strokingWithWidth: width,
+                                       lineCap: .round,
+                                       lineJoin: .round,
+                                       miterLimit: 2)
+            union.addPath(stroked)
+            added = true
+        }
+        return added ? union : nil
+    }
+    
+    private func svgPathData(from path: CGPath) -> String {
+        var d = ""
+        path.applyWithBlock { element in
+            let e = element.pointee
+            switch e.type {
+            case .moveToPoint:
+                let p = e.points[0]
+                d += "M \(svgNumber(p.x)) \(svgNumber(p.y)) "
+            case .addLineToPoint:
+                let p = e.points[0]
+                d += "L \(svgNumber(p.x)) \(svgNumber(p.y)) "
+            case .addQuadCurveToPoint:
+                let c = e.points[0]
+                let p = e.points[1]
+                d += "Q \(svgNumber(c.x)) \(svgNumber(c.y)) \(svgNumber(p.x)) \(svgNumber(p.y)) "
+            case .addCurveToPoint:
+                let c1 = e.points[0]
+                let c2 = e.points[1]
+                let p = e.points[2]
+                d += "C \(svgNumber(c1.x)) \(svgNumber(c1.y)) \(svgNumber(c2.x)) \(svgNumber(c2.y)) \(svgNumber(p.x)) \(svgNumber(p.y)) "
+            case .closeSubpath:
+                d += "Z "
+            @unknown default:
+                break
+            }
+        }
+        return d.trimmingCharacters(in: .whitespaces)
+    }
+    
+    private func svgNumber(_ value: CGFloat) -> String {
+        String(format: "%.2f", Double(value))
     }
 }
 
@@ -528,6 +582,7 @@ struct ActivityViewController: UIViewControllerRepresentable {
 
 // Progress sheet with selectable targets and GitHub completion hints
 struct ProgressSheetView: View {
+    @Binding var selectedGroup: String
     let currentIndex: Int
     let questions: [String]
     let completedCharacters: Set<String>
@@ -541,6 +596,17 @@ struct ProgressSheetView: View {
     var body: some View {
         NavigationView {
             List {
+                Section("分組") {
+                    Picker("分組", selection: $selectedGroup) {
+                        ForEach(handwritingGroups.map { $0.name }, id: \.self) { name in
+                            Text(name).tag(name)
+                        }
+                    }
+                    .onChange(of: selectedGroup) { newValue in
+                        // switching group updates DrawingView via binding
+                    }
+                }
+
                 Section {
                     Text(progressText)
                         .font(.headline)
@@ -1005,6 +1071,7 @@ struct SimpleDrawingView: View {
                 // fixed white background
                 let rect = CGRect(origin: .zero, size: size)
                 ctx.fill(Path(rect), with: .color(.white))
+
                 // draw previous strokes
                 for stroke in strokes {
                     var path = Path()
@@ -1013,7 +1080,12 @@ struct SimpleDrawingView: View {
                     for p in stroke.dropFirst() {
                         path.addLine(to: p.point)
                     }
-                    ctx.stroke(path, with: .color(.black), lineWidth: stroke.first?.force ?? lineWidth)
+                    // 固定粗細，圓頭圓角
+                    let width = stroke.first?.force ?? lineWidth
+                    let style = StrokeStyle(lineWidth: width,
+                                            lineCap: .round,
+                                            lineJoin: .round)
+                    ctx.stroke(path, with: .color(.black), style: style)
                 }
 
                 // current stroke
@@ -1023,21 +1095,29 @@ struct SimpleDrawingView: View {
                     for p in currentStroke.dropFirst() {
                         path.addLine(to: p.point)
                     }
-                    ctx.stroke(path, with: .color(.black), lineWidth: currentStroke.first?.force ?? lineWidth)
+                    // 固定粗細，圓頭圓角
+                    let width = currentStroke.first?.force ?? lineWidth
+                    let style = StrokeStyle(lineWidth: width,
+                                            lineCap: .round,
+                                            lineJoin: .round)
+                    ctx.stroke(path, with: .color(.black), style: style)
                 }
             }
-            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .local)
-                .onChanged { value in
-                    let force: CGFloat = value.predictedEndLocation == .zero ? lineWidth : lineWidth
-                    let pt = StrokePoint(point: value.location, force: force)
-                    currentStroke.append(pt)
-                }
-                .onEnded { _ in
-                    if !currentStroke.isEmpty {
-                        strokes.append(currentStroke)
-                        currentStroke = []
+            // ⬇️ gesture 掛在 Canvas 外面（很重要）
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .onChanged { value in
+                        // 不用壓感，只吃 slider 的 lineWidth
+                        let force: CGFloat = lineWidth
+                        let pt = StrokePoint(point: value.location, force: force)
+                        currentStroke.append(pt)
                     }
-                }
+                    .onEnded { _ in
+                        if !currentStroke.isEmpty {
+                            strokes.append(currentStroke)
+                            currentStroke = []
+                        }
+                    }
             )
         }
     }
