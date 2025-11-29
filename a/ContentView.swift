@@ -113,6 +113,13 @@ struct DrawingView: View {
         guard !questionBank.isEmpty else { return "題庫載入中..." }
         return "請寫：" + questionBank[currentIndex]
     }
+    
+    var previewCharacter: String? {
+        guard !questionBank.isEmpty,
+              currentIndex >= 0,
+              currentIndex < questionBank.count else { return nil }
+        return questionBank[currentIndex]
+    }
 
     init() {
         let initial = handwritingGroups.first?.characters ?? []
@@ -167,6 +174,15 @@ struct DrawingView: View {
                                     .clipped()
                                     .overlay(
                                         ZStack {
+                                            if let previewCharacter {
+                                                Text(previewCharacter)
+                                                    .font(.system(size: 220, weight: .regular))
+                                                    .foregroundColor(.black.opacity(0.08))
+                                                    .minimumScaleFactor(0.1)
+                                                    .lineLimit(1)
+                                                    .allowsHitTesting(false)
+                                                    .accessibilityHidden(true)
+                                            }
                                             Rectangle()
                                                 .stroke(Color(UIColor.separator), lineWidth: 1)
                                             Crosshair(size: CGSize(width: 300, height: 300), lineColor: Color(UIColor.separator), lineWidth: 1, dash: [4,4])
@@ -178,6 +194,15 @@ struct DrawingView: View {
                                     .clipped()
                                     .overlay(
                                         ZStack {
+                                            if let previewCharacter {
+                                                Text(previewCharacter)
+                                                    .font(.system(size: 220, weight: .regular))
+                                                    .foregroundColor(.black.opacity(0.08))
+                                                    .minimumScaleFactor(0.1)
+                                                    .lineLimit(1)
+                                                    .allowsHitTesting(false)
+                                                    .accessibilityHidden(true)
+                                            }
                                             Rectangle()
                                                 .stroke(Color(UIColor.separator), lineWidth: 1)
                                             Crosshair(size: CGSize(width: 300, height: 300), lineColor: Color(UIColor.separator), lineWidth: 1, dash: [4,4])
