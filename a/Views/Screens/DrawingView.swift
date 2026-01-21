@@ -57,127 +57,225 @@ struct DrawingView: View {
 
     var body: some View {
         GeometryReader { geo in
-            VStack(spacing: 0) {
-                // 上方 1/3：顯示要書寫的文字
-                ZStack {
-                    Color(UIColor.systemGroupedBackground)
-                    Text(targetText)
-                        .font(.system(size: 28, weight: .semibold))
-                        .multilineTextAlignment(.center)
-                        .padding()
-                }
-                .frame(height: geo.size.height / 3)
-
-                // 下方 2/3：畫布 + 控制列
+            ZStack {
+                Color(UIColor.systemGroupedBackground).ignoresSafeArea()
+                
                 VStack(spacing: 0) {
-                    VStack {
-                        // 模式切換
+                    // MARK: Top Navigation Bar
+                    HStack {
+                        Button {
+                            DispatchQueue.main.async {
+                                showingSettings = true
+                            }
+                        } label: {
+                            Image(systemName: "gearshape.fill")
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                                .padding(10)
+                                .background(Color(UIColor.secondarySystemBackground))
+                                .clipShape(Circle())
+                        }
+                        
+                        Spacer()
+                        
+                        Text("手寫採集")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
+                        
+                        Button {
+                            DispatchQueue.main.async {
+                                showingProgressDialog = true
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                refreshCompletionStatus(force: true)
+                            }
+                        } label: {
+                            Image(systemName: "chart.bar.xaxis")
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                                .padding(10)
+                                .background(Color(UIColor.secondarySystemBackground))
+                                .clipShape(Circle())
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+                    
+                    // MARK: Prompt Card
+                    VStack(spacing: 8) {
+                        Text(questionBank.isEmpty ? "載入中..." : "請寫")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        
+                        Text(previewCharacter ?? "...")
+                            .font(.system(size: 80, weight: .bold))
+                            .foregroundColor(.primary)
+                            .frame(height: 100)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                    .background(Color(UIColor.systemBackground))
+                    .cornerRadius(20)
+                    .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 5)
+                    .padding(.horizontal)
+                    
+                    Spacer()
+                    
+                    // MARK: Canvas Area
+                    ZStack {
+                        if usePencilKit {
+                            PKCanvasViewWrapper(drawing: $pkDrawing, lineWidth: $brushWidth)
+                                .frame(width: 300, height: 300)
+                                .clipped()
+                                .overlay(canvasOverlay)
+                        } else {
+                            SimpleDrawingView(strokes: $simpleStrokes, currentStroke: $currentSimpleStroke, lineWidth: $brushWidth)
+                                .frame(width: 300, height: 300)
+                                .clipped()
+                                .overlay(canvasOverlay)
+                        }
+                    }
+                    .background(Color.white)
+                    .cornerRadius(12)
+                    .shadow(color: Color.black.opacity(0.1), radius: 12, x: 0, y: 6)
+                    .scaleEffect(canvasScale)
+                    
+                    Spacer()
+                    
+                    // MARK: Bottom Control Panel
+                    VStack(spacing: 20) {
+                        // Slider & Scale
+                        HStack(spacing: 16) {
+                            // Brush Size
+                            HStack {
+                                Image(systemName: "scribble")
+                                    .foregroundColor(.secondary)
+                                Slider(value: $brushWidth, in: 1...20, step: 1)
+                                Text("\(Int(brushWidth))")
+                                    .font(.caption)
+                                    .monospacedDigit()
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 25)
+                            }
+                            .padding(10)
+                            .background(Color(UIColor.secondarySystemBackground))
+                            .cornerRadius(12)
+                            
+                            // Scale
+                            HStack(spacing: 0) {
+                                Button(action: { canvasScalePercent = max(50, canvasScalePercent - 10) }) {
+                                    Image(systemName: "minus")
+                                        .frame(width: 30, height: 30)
+                                }
+                                Text("\(canvasScalePercent)%")
+                                    .font(.caption)
+                                    .monospacedDigit()
+                                    .frame(width: 40)
+                                Button(action: { canvasScalePercent = min(100, canvasScalePercent + 10) }) {
+                                    Image(systemName: "plus")
+                                        .frame(width: 30, height: 30)
+                                }
+                            }
+                            .background(Color(UIColor.secondarySystemBackground))
+                            .cornerRadius(12)
+                            .foregroundColor(.primary)
+                        }
+                        
+                        // Mode Segment
                         Picker("Mode", selection: $usePencilKit) {
                             Text("有壓感").tag(true)
                             Text("無壓感").tag(false)
                         }
                         .pickerStyle(.segmented)
-                        .padding(.horizontal)
                         .onChange(of: characterLoader.loadedText) { _ in
                             // 當字庫更新時，同步更新題庫
                             Task { @MainActor in
                                 updateQuestionBankFromLoader()
                             }
                         }
-
-                        ZStack {
-                            if usePencilKit {
-                                PKCanvasViewWrapper(drawing: $pkDrawing, lineWidth: $brushWidth)
-                                    .frame(width: 300, height: 300)
-                                    .clipped()
-                                    .overlay(canvasOverlay)
-                            } else {
-                                SimpleDrawingView(strokes: $simpleStrokes, currentStroke: $currentSimpleStroke, lineWidth: $brushWidth)
-                                    .frame(width: 300, height: 300)
-                                    .clipped()
-                                    .overlay(canvasOverlay)
+                        
+                        // Action Buttons
+                        HStack(spacing: 16) {
+                            Button(action: {
+                                withAnimation {
+                                    if usePencilKit {
+                                        pkDrawing = PKDrawing()
+                                    } else {
+                                        simpleStrokes = []
+                                        currentSimpleStroke = []
+                                    }
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "trash")
+                                    Text("清除")
+                                }
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.red.opacity(0.1))
+                                .foregroundColor(.red)
+                                .cornerRadius(16)
                             }
+                            
+                            Button(action: { handleExportSVG() }) {
+                                HStack {
+                                    if isUploading {
+                                        ProgressView()
+                                            .tint(.white)
+                                    } else {
+                                        Image(systemName: "paperplane.fill")
+                                        Text("送出")
+                                    }
+                                }
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(isUploading ? Color.gray : Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(16)
+                            }
+                            .disabled(isUploading)
                         }
-                        .scaleEffect(canvasScale)
-                        .frame(width: 300, height: 300)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-
-                    HStack(spacing: 12) {
-                        Text("粗細")
-                        Slider(value: $brushWidth, in: 1...20, step: 1)
-                            .frame(maxWidth: 220)
-                        Text("\(Int(brushWidth)) pt")
-                            .monospacedDigit()
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom, 4)
-
-                    // 縮放控制
-                    HStack(spacing: 12) {
-                        Text("縮放")
-                        Button(action: { canvasScalePercent = max(50, canvasScalePercent - 10) }) {
-                            Image(systemName: "minus.magnifyingglass")
-                                .font(.system(size: 16))
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(canvasScalePercent <= 50)
-                        
-                        Text("\(canvasScalePercent)%")
-                            .monospacedDigit()
-                            .foregroundColor(.secondary)
-                            .frame(minWidth: 50)
-                        
-                        Button(action: { canvasScalePercent = 100 }) {
-                            Text("重置")
-                                .font(.system(size: 14))
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(canvasScalePercent == 100)
-                        
-                        Button(action: { canvasScalePercent = min(100, canvasScalePercent + 10) }) {
-                            Image(systemName: "plus.magnifyingglass")
-                                .font(.system(size: 16))
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(canvasScalePercent >= 100)
-                    }
+                    .padding()
+                    .background(Color(UIColor.systemBackground))
+                    .cornerRadius(24)
+                    .shadow(color: Color.black.opacity(0.1), radius: 10, y: 5)
                     .padding(.horizontal)
                     .padding(.bottom, 8)
-
-                    // 控制按鈕列
-                    controlButtons
                 }
-                .frame(height: geo.size.height * 2 / 3)
             }
-        }
-        .sheet(isPresented: $showingSettings) {
-            GitHubSettingsView()
-        }
-        .sheet(isPresented: $showingProgressDialog) {
-            ProgressSheetView(
-                currentIndex: currentIndex,
-                questions: questionBank,
-                completedCharacters: completedCharacters,
-                isLoading: isLoadingCompletions,
-                errorMessage: completionError,
-                onSelect: { index in
-                    jumpToQuestion(index: index)
-                },
-                onReset: {
-                    resetProgress()
-                },
-                onRefresh: {
-                    refreshCompletionStatus(force: true)
+            .sheet(isPresented: $showingSettings) {
+                GitHubSettingsView()
+            }
+            .sheet(isPresented: $showingProgressDialog) {
+                ProgressSheetView(
+                    currentIndex: currentIndex,
+                    questions: questionBank,
+                    completedCharacters: completedCharacters,
+                    isLoading: isLoadingCompletions,
+                    errorMessage: completionError,
+                    onSelect: { index in
+                        jumpToQuestion(index: index)
+                    },
+                    onReset: {
+                        resetProgress()
+                    },
+                    onRefresh: {
+                        refreshCompletionStatus(force: true)
+                    }
+                )
+            }
+            .overlay(alignment: .top) {
+                if let message = toastMessage {
+                    ToastView(message: message, type: toastType)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.top, 50)
                 }
-            )
-        }
-        .overlay(alignment: .top) {
-            if let message = toastMessage {
-                ToastView(message: message, type: toastType)
-                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
     }
@@ -203,40 +301,6 @@ struct DrawingView: View {
         }
     }
     
-    /// 控制按鈕列
-    private var controlButtons: some View {
-        HStack {
-            Button("清除") {
-                if usePencilKit {
-                    pkDrawing = PKDrawing()
-                } else {
-                    simpleStrokes = []
-                    currentSimpleStroke = []
-                }
-            }
-            Button("進度") {
-                DispatchQueue.main.async {
-                    showingProgressDialog = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    refreshCompletionStatus(force: true)
-                }
-            }
-            Spacer()
-            Button("設定") {
-                DispatchQueue.main.async {
-                    print("[UI] Settings tapped")
-                    showingSettings = true
-                }
-            }
-            Button("匯出SVG") {
-                handleExportSVG()
-            }
-            .disabled(isUploading)
-        }
-        .padding()
-    }
-
     // MARK: - Actions
     
     private func handleExportSVG() {
