@@ -110,12 +110,49 @@ struct DrawingView: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                         
-                        Text(previewCharacter ?? "...")
-                            .font(.system(size: 80, weight: .bold))
-                            .foregroundColor(.primary)
-                            .frame(height: 100)
+                        HStack(alignment: .center, spacing: 8) {
+                            // 前三個字
+                            ForEach((1...3).reversed(), id: \.self) { offset in
+                                if currentIndex - offset >= 0 {
+                                    Text(questionBank[currentIndex - offset])
+                                        .font(.system(size: 48, weight: .regular))
+                                        .foregroundColor(.gray.opacity(0.3))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.1)
+                                } else {
+                                    Text("　")
+                                        .font(.system(size: 48))
+                                        .opacity(0)
+                                        .minimumScaleFactor(0.1)
+                                }
+                            }
+                            
+                            Text(previewCharacter ?? "...")
+                                .font(.system(size: 80, weight: .bold))
+                                .foregroundColor(.primary)
+                                .frame(height: 100)
+                                .padding(.horizontal, 4)
+                                .lineLimit(1)
+                                .layoutPriority(1)
+                            
+                            // 後三個字
+                            ForEach(1...3, id: \.self) { offset in
+                                if currentIndex + offset < questionBank.count {
+                                    Text(questionBank[currentIndex + offset])
+                                        .font(.system(size: 48, weight: .regular))
+                                        .foregroundColor(.gray.opacity(0.3))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.1)
+                                } else {
+                                    Text("　")
+                                        .font(.system(size: 48))
+                                        .opacity(0)
+                                        .minimumScaleFactor(0.1)
+                                }
+                            }
+                        }
                     }
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: 500)
                     .padding(.vertical, 20)
                     .background(Color(UIColor.systemBackground))
                     .cornerRadius(20)
