@@ -223,7 +223,10 @@ struct DrawingView: View {
                         .padding(.horizontal)
                         .onChange(of: characterLoader.loadedText) { _ in
                             // 當字庫更新時，同步更新題庫
-                            updateQuestionBankFromLoader()
+                            // 使用 Task 延遲狀態修改，避免在 view update 期間修改狀態
+                            Task { @MainActor in
+                                updateQuestionBankFromLoader()
+                            }
                         }
 
                         ZStack {
@@ -296,18 +299,21 @@ struct DrawingView: View {
                             }
                         }
                         Button("進度") {
-                            if showingShareSheet { showingShareSheet = false }
-                            refreshCompletionStatus(force: true)
                             DispatchQueue.main.async {
+                                if showingShareSheet { showingShareSheet = false }
                                 showingProgressDialog = true
+                            }
+                            // 在狀態設定後再刷新
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                refreshCompletionStatus(force: true)
                             }
                         }
                         Spacer()
                         Button("設定") {
                             // 若分享面板尚未關閉，先關閉以避免同時存在兩個 sheet 導致無法彈出
-                            if showingShareSheet { showingShareSheet = false }
-                            print("[UI] Settings tapped")
                             DispatchQueue.main.async {
+                                if showingShareSheet { showingShareSheet = false }
+                                print("[UI] Settings tapped")
                                 showingSettings = true
                             }
                         }
@@ -517,23 +523,42 @@ struct DrawingView: View {
                     token: token,
                     onSuccess: {
                         DispatchQueue.main.async {
-                            isUploading = false
-                            toastMessage = "✅ 已成功上傳到 GitHub"
-                            toastType = .success
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                                toastMessage = nil
-                                goToNextQuestion()
+                            self.isUploading = false
+                            self.toastMessage = "✅ 已成功上傳到 GitHub"
+                            self.toastType = .success
+                        }
+                        // 使用 DispatchQueue 的延遲以確保充分隔離
+                        let deadline = DispatchTime.now() + .milliseconds(2000)
+                        DispatchQueue.main.asyncAfter(deadline: deadline) {
+                            // 先清除 toast
+                            self.toastMessage = nil
+                        }
+                        let nextQuestionDeadline = DispatchTime.now() + .milliseconds(2100)
+                        DispatchQueue.main.asyncAfter(deadline: nextQuestionDeadline) {
+                            // 再進行下一題
+                            if !self.questionBank.isEmpty {
+                                if self.currentIndex < self.questionBank.count - 1 {
+                                    self.currentIndex += 1
+                                } else {
+                                    self.currentIndex = 0
+                                }
+                                UserDefaults.standard.set(self.currentIndex, forKey: "CurrentIndex")
                             }
+                            self.isUploading = false
+                            self.pkDrawing = PKDrawing()
+                            self.simpleStrokes = []
+                            self.currentSimpleStroke = []
+                            self.showingProgressDialog = false
                         }
                     },
                     onError: { error in
                         DispatchQueue.main.async {
-                            isUploading = false
-                            toastMessage = error
-                            toastType = .error
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                                toastMessage = nil
-                            }
+                            self.isUploading = false
+                            self.toastMessage = error
+                            self.toastType = .error
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            self.toastMessage = nil
                         }
                     }
                 )
@@ -571,18 +596,24 @@ struct DrawingView: View {
         let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
 
         guard !owner.isEmpty, !repo.isEmpty else {
-            completionError = "請先完成 GitHub 設定"
-            completedCharacters = []
+            DispatchQueue.main.async {
+                self.completionError = "請先完成 GitHub 設定"
+                self.completedCharacters = []
+            }
             return
         }
         guard !token.isEmpty else {
-            completionError = "找不到 GitHub Token"
-            completedCharacters = []
+            DispatchQueue.main.async {
+                self.completionError = "找不到 GitHub Token"
+                self.completedCharacters = []
+            }
             return
         }
 
-        isLoadingCompletions = true
-        completionError = nil
+        DispatchQueue.main.async {
+            self.isLoadingCompletions = true
+            self.completionError = nil
+        }
 
         listGitHubSVGs(
             owner: owner,
@@ -606,18 +637,18 @@ struct DrawingView: View {
     }
 
     func goToNextQuestion() {
-        if !questionBank.isEmpty {
-            if currentIndex < questionBank.count - 1 {
-                currentIndex += 1
+        if !self.questionBank.isEmpty {
+            if self.currentIndex < self.questionBank.count - 1 {
+                self.currentIndex += 1
             } else {
-                currentIndex = 0
+                self.currentIndex = 0
             }
             // 存到 UserDefaults
-            UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
+            UserDefaults.standard.set(self.currentIndex, forKey: "CurrentIndex")
         }
         // 切換題目時重置上傳狀態，防止卡住
-        isUploading = false
-        clearDrawings()
+        self.isUploading = false
+        self.clearDrawings()
     }
 
     func resetProgress() {
@@ -628,18 +659,18 @@ struct DrawingView: View {
     }
 
     func clearDrawings() {
-        pkDrawing = PKDrawing()
-        simpleStrokes = []
-        currentSimpleStroke = []
-        showingProgressDialog = false
+        self.pkDrawing = PKDrawing()
+        self.simpleStrokes = []
+        self.currentSimpleStroke = []
+        self.showingProgressDialog = false
     }
     
     /// 當字庫變更時更新題庫
     func updateQuestionBankFromLoader() {
-        questionBank = characterLoader.loadedCharacters
-        currentIndex = 0
+        self.questionBank = characterLoader.loadedCharacters
+        self.currentIndex = 0
         UserDefaults.standard.set(0, forKey: "CurrentIndex")
-        clearDrawings()
+        self.clearDrawings()
     }
     
     private func interpolatedPoints(from path: PKStrokePath) -> [PKStrokePoint] {
@@ -920,7 +951,10 @@ struct PKCanvasViewWrapper: UIViewRepresentable {
         init(_ parent: PKCanvasViewWrapper) { self.parent = parent }
         
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            parent.drawing = canvasView.drawing
+            // 使用 Task 延遲狀態更新，避免在 view update 期間修改狀態
+            Task { @MainActor in
+                self.parent.drawing = canvasView.drawing
+            }
         }
     }
 }
@@ -1332,12 +1366,16 @@ struct SimpleDrawingView: View {
                         // 不用壓感，只吃 slider 的 lineWidth
                         let force: CGFloat = lineWidth
                         let pt = StrokePoint(point: value.location, force: force)
-                        currentStroke.append(pt)
+                        Task { @MainActor in
+                            currentStroke.append(pt)
+                        }
                     }
                     .onEnded { _ in
-                        if !currentStroke.isEmpty {
-                            strokes.append(currentStroke)
-                            currentStroke = []
+                        Task { @MainActor in
+                            if !currentStroke.isEmpty {
+                                strokes.append(currentStroke)
+                                currentStroke = []
+                            }
                         }
                     }
             )
