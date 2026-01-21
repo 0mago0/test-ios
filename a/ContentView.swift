@@ -153,8 +153,6 @@ enum GHKeys {
 
 struct DrawingView: View {
     @State private var pkDrawing = PKDrawing()
-    @State private var showingShareSheet = false
-    @State private var exportURL: URL? = nil
     @State private var questionBank: [String] = []
     @State private var currentIndex: Int = UserDefaults.standard.integer(forKey: "CurrentIndex") // 讀取存檔
     @AppStorage(GHKeys.owner)  private var ghOwner: String = ""
@@ -300,7 +298,6 @@ struct DrawingView: View {
                         }
                         Button("進度") {
                             DispatchQueue.main.async {
-                                if showingShareSheet { showingShareSheet = false }
                                 showingProgressDialog = true
                             }
                             // 在狀態設定後再刷新
@@ -310,9 +307,8 @@ struct DrawingView: View {
                         }
                         Spacer()
                         Button("設定") {
-                            // 若分享面板尚未關閉，先關閉以避免同時存在兩個 sheet 導致無法彈出
+                            // 先關閉任何打開的 sheet
                             DispatchQueue.main.async {
-                                if showingShareSheet { showingShareSheet = false }
                                 print("[UI] Settings tapped")
                                 showingSettings = true
                             }
@@ -327,11 +323,6 @@ struct DrawingView: View {
                             }
                         }
                         .disabled(isUploading)
-                        Button("分享") {
-                            if let _ = exportURL {
-                                showingShareSheet = true
-                            }
-                        }
                     }
                     .padding()
                 }
@@ -340,11 +331,6 @@ struct DrawingView: View {
         }
         .sheet(isPresented: $showingSettings) {
             GitHubSettingsView()
-        }
-        .sheet(isPresented: $showingShareSheet) {
-            if let url = exportURL {
-                ActivityViewController(activityItems: [url])
-            }
         }
         .sheet(isPresented: $showingProgressDialog) {
             ProgressSheetView(
