@@ -24,6 +24,7 @@ struct DrawingView: View {
     @State private var showingProgressDialog = false
     @State private var brushWidth: CGFloat = 5
     @State private var usePencilKit: Bool = true
+    @State private var canvasScalePercent: Int = 100 // 50-100%
     @State private var completedCharacters: Set<String> = []
     @State private var isLoadingCompletions = false
     @State private var completionError: String? = nil
@@ -36,6 +37,10 @@ struct DrawingView: View {
     var targetText: String {
         guard !questionBank.isEmpty else { return "題庫載入中..." }
         return "請寫：" + questionBank[currentIndex]
+    }
+    
+    var canvasScale: CGFloat {
+        CGFloat(canvasScalePercent) / 100.0
     }
     
     var previewCharacter: String? {
@@ -93,6 +98,8 @@ struct DrawingView: View {
                                     .overlay(canvasOverlay)
                             }
                         }
+                        .scaleEffect(canvasScale)
+                        .frame(width: 300, height: 300)
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
@@ -107,6 +114,38 @@ struct DrawingView: View {
                     }
                     .padding(.horizontal)
                     .padding(.bottom, 4)
+
+                    // 縮放控制
+                    HStack(spacing: 12) {
+                        Text("縮放")
+                        Button(action: { canvasScalePercent = max(50, canvasScalePercent - 10) }) {
+                            Image(systemName: "minus.magnifyingglass")
+                                .font(.system(size: 16))
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(canvasScalePercent <= 50)
+                        
+                        Text("\(canvasScalePercent)%")
+                            .monospacedDigit()
+                            .foregroundColor(.secondary)
+                            .frame(minWidth: 50)
+                        
+                        Button(action: { canvasScalePercent = 100 }) {
+                            Text("重置")
+                                .font(.system(size: 14))
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(canvasScalePercent == 100)
+                        
+                        Button(action: { canvasScalePercent = min(100, canvasScalePercent + 10) }) {
+                            Image(systemName: "plus.magnifyingglass")
+                                .font(.system(size: 16))
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(canvasScalePercent >= 100)
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
 
                     // 控制按鈕列
                     controlButtons
@@ -292,9 +331,13 @@ struct DrawingView: View {
                     svgShapes += "<circle cx=\"\(p.point.x)\" cy=\"\(p.point.y)\" r=\"\(r)\" fill=\"black\" />\n"
                     continue
                 }
-                var d = "M \(stroke[0].point.x) \(stroke[0].point.y) "
-                for i in 1..<stroke.count {
-                    d += "L \(stroke[i].point.x) \(stroke[i].point.y) "
+                var d = ""
+                for (i, point) in stroke.enumerated() {
+                    if i == 0 {
+                        d = "M \(point.point.x) \(point.point.y) "
+                    } else {
+                        d += "L \(point.point.x) \(point.point.y) "
+                    }
                 }
                 let width = max(0.5, stroke.first?.force ?? 1)
                 svgShapes += "<path d=\"\(d)\" stroke=\"black\" fill=\"none\" stroke-width=\"\(width)\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />\n"
