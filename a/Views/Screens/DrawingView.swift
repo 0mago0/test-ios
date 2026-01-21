@@ -113,12 +113,17 @@ struct DrawingView: View {
                         HStack(alignment: .center, spacing: 8) {
                             // 前三個字
                             ForEach((1...3).reversed(), id: \.self) { offset in
-                                if currentIndex - offset >= 0 {
-                                    Text(questionBank[currentIndex - offset])
+                                let index = currentIndex - offset
+                                if index >= 0 {
+                                    Text(questionBank[index])
                                         .font(.system(size: 48, weight: .regular))
-                                        .foregroundColor(.gray.opacity(0.3))
+                                        .foregroundColor(completedCharacters.contains(questionBank[index]) ? .green.opacity(0.5) : .gray.opacity(0.3))
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.1)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            withAnimation { jumpToQuestion(index: index) }
+                                        }
                                 } else {
                                     Text("　")
                                         .font(.system(size: 48))
@@ -127,9 +132,10 @@ struct DrawingView: View {
                                 }
                             }
                             
-                            Text(previewCharacter ?? "...")
+                            let centerText = previewCharacter ?? "..."
+                            Text(centerText)
                                 .font(.system(size: 80, weight: .bold))
-                                .foregroundColor(.primary)
+                                .foregroundColor(completedCharacters.contains(centerText) ? .green : .primary)
                                 .frame(height: 100)
                                 .padding(.horizontal, 4)
                                 .lineLimit(1)
@@ -137,12 +143,17 @@ struct DrawingView: View {
                             
                             // 後三個字
                             ForEach(1...3, id: \.self) { offset in
-                                if currentIndex + offset < questionBank.count {
-                                    Text(questionBank[currentIndex + offset])
+                                let index = currentIndex + offset
+                                if index < questionBank.count {
+                                    Text(questionBank[index])
                                         .font(.system(size: 48, weight: .regular))
-                                        .foregroundColor(.gray.opacity(0.3))
+                                        .foregroundColor(completedCharacters.contains(questionBank[index]) ? .green.opacity(0.5) : .gray.opacity(0.3))
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.1)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            withAnimation { jumpToQuestion(index: index) }
+                                        }
                                 } else {
                                     Text("　")
                                         .font(.system(size: 48))
@@ -151,6 +162,25 @@ struct DrawingView: View {
                                 }
                             }
                         }
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture()
+                                .onEnded { value in
+                                    let threshold: CGFloat = 30
+                                    if value.translation.width < -threshold {
+                                        // 左滑，下一題
+                                        withAnimation { goToNextQuestion() }
+                                    } else if value.translation.width > threshold {
+                                        // 右滑，上一題
+                                        withAnimation {
+                                            if !questionBank.isEmpty {
+                                                let newIndex = currentIndex > 0 ? currentIndex - 1 : questionBank.count - 1
+                                                jumpToQuestion(index: newIndex)
+                                            }
+                                        }
+                                    }
+                                }
+                        )
                     }
                     .frame(maxWidth: 500)
                     .padding(.vertical, 20)
@@ -285,7 +315,9 @@ struct DrawingView: View {
                     .padding(.bottom, 8)
                 }
             }
-            .sheet(isPresented: $showingSettings) {
+            .sheet(isPresented: $showingSettings, onDismiss: {
+                refreshCompletionStatus()
+            }) {
                 GitHubSettingsView()
             }
             .sheet(isPresented: $showingProgressDialog) {
@@ -312,6 +344,9 @@ struct DrawingView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                         .padding(.top, 50)
                 }
+            }
+            .task {
+                refreshCompletionStatus()
             }
         }
     }
@@ -500,6 +535,7 @@ struct DrawingView: View {
                             self.isUploading = false
                             self.toastMessage = "✅ 已上傳"
                             self.toastType = .success
+                            self.completedCharacters.insert(fileName)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                                 self.toastMessage = nil
                             }
