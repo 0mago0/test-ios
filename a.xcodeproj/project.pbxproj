@@ -15,6 +15,17 @@
 		377AD2E82E6AC47D00666E89 /* aUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377AD2E72E6AC47D00666E89 /* aUITests.swift */; };
 		377AD2EA2E6AC47D00666E89 /* aUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377AD2E92E6AC47D00666E89 /* aUITestsLaunchTests.swift */; };
 		DD816F4E2F20B7740031DBF1 /* CharacterLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD816F4D2F20B7730031DBF1 /* CharacterLoader.swift */; };
+		AA000001300000010000001A /* StrokePoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001300000010000000A /* StrokePoint.swift */; };
+		AA000001300000010000001B /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001300000010000000B /* KeychainHelper.swift */; };
+		AA000001300000010000001C /* GHKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001300000010000000C /* GHKeys.swift */; };
+		AA000001300000010000001D /* GitHubService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001300000010000000D /* GitHubService.swift */; };
+		AA000001300000010000001E /* Crosshair.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001300000010000000E /* Crosshair.swift */; };
+		AA000001300000010000001F /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001300000010000000F /* ToastView.swift */; };
+		AA00000130000001000000AA /* PKCanvasViewWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A0 /* PKCanvasViewWrapper.swift */; };
+		AA00000130000001000000AB /* SimpleDrawingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A1 /* SimpleDrawingView.swift */; };
+		AA00000130000001000000AC /* DrawingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A2 /* DrawingView.swift */; };
+		AA00000130000001000000AD /* GitHubSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A3 /* GitHubSettingsView.swift */; };
+		AA00000130000001000000AE /* ProgressSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A4 /* ProgressSheetView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,6 +57,17 @@
 		377AD2E72E6AC47D00666E89 /* aUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = aUITests.swift; sourceTree = "<group>"; };
 		377AD2E92E6AC47D00666E89 /* aUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = aUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		DD816F4D2F20B7730031DBF1 /* CharacterLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterLoader.swift; sourceTree = "<group>"; };
+		AA000001300000010000000A /* StrokePoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrokePoint.swift; sourceTree = "<group>"; };
+		AA000001300000010000000B /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		AA000001300000010000000C /* GHKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GHKeys.swift; sourceTree = "<group>"; };
+		AA000001300000010000000D /* GitHubService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubService.swift; sourceTree = "<group>"; };
+		AA000001300000010000000E /* Crosshair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Crosshair.swift; sourceTree = "<group>"; };
+		AA000001300000010000000F /* ToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000A0 /* PKCanvasViewWrapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PKCanvasViewWrapper.swift; sourceTree = "<group>"; };
+		AA00000130000001000000A1 /* SimpleDrawingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleDrawingView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000A2 /* DrawingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000A3 /* GitHubSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubSettingsView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000A4 /* ProgressSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressSheetView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -96,9 +118,13 @@
 		377AD2CB2E6AC47C00666E89 /* a */ = {
 			isa = PBXGroup;
 			children = (
-				DD816F4D2F20B7730031DBF1 /* CharacterLoader.swift */,
 				377AD2CC2E6AC47C00666E89 /* aApp.swift */,
 				377AD2CE2E6AC47C00666E89 /* ContentView.swift */,
+				DD816F4D2F20B7730031DBF1 /* CharacterLoader.swift */,
+				AA00000130000001000000B1 /* Models */,
+				AA00000130000001000000B2 /* Helpers */,
+				AA00000130000001000000B3 /* Services */,
+				AA00000130000001000000B4 /* Views */,
 				377AD2D02E6AC47D00666E89 /* Assets.xcassets */,
 				377AD2D22E6AC47D00666E89 /* Preview Content */,
 			);
@@ -128,6 +154,61 @@
 				377AD2E92E6AC47D00666E89 /* aUITestsLaunchTests.swift */,
 			);
 			path = aUITests;
+			sourceTree = "<group>";
+		};
+		AA00000130000001000000B1 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				AA000001300000010000000A /* StrokePoint.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		AA00000130000001000000B2 /* Helpers */ = {
+			isa = PBXGroup;
+			children = (
+				AA000001300000010000000B /* KeychainHelper.swift */,
+				AA000001300000010000000C /* GHKeys.swift */,
+			);
+			path = Helpers;
+			sourceTree = "<group>";
+		};
+		AA00000130000001000000B3 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				AA000001300000010000000D /* GitHubService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		AA00000130000001000000B4 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000130000001000000B5 /* Components */,
+				AA00000130000001000000B6 /* Screens */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		AA00000130000001000000B5 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				AA000001300000010000000E /* Crosshair.swift */,
+				AA000001300000010000000F /* ToastView.swift */,
+				AA00000130000001000000A0 /* PKCanvasViewWrapper.swift */,
+				AA00000130000001000000A1 /* SimpleDrawingView.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		AA00000130000001000000B6 /* Screens */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000130000001000000A2 /* DrawingView.swift */,
+				AA00000130000001000000A3 /* GitHubSettingsView.swift */,
+				AA00000130000001000000A4 /* ProgressSheetView.swift */,
+			);
+			path = Screens;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -263,6 +344,17 @@
 				DD816F4E2F20B7740031DBF1 /* CharacterLoader.swift in Sources */,
 				377AD2CF2E6AC47C00666E89 /* ContentView.swift in Sources */,
 				377AD2CD2E6AC47C00666E89 /* aApp.swift in Sources */,
+				AA000001300000010000001A /* StrokePoint.swift in Sources */,
+				AA000001300000010000001B /* KeychainHelper.swift in Sources */,
+				AA000001300000010000001C /* GHKeys.swift in Sources */,
+				AA000001300000010000001D /* GitHubService.swift in Sources */,
+				AA000001300000010000001E /* Crosshair.swift in Sources */,
+				AA000001300000010000001F /* ToastView.swift in Sources */,
+				AA00000130000001000000AA /* PKCanvasViewWrapper.swift in Sources */,
+				AA00000130000001000000AB /* SimpleDrawingView.swift in Sources */,
+				AA00000130000001000000AC /* DrawingView.swift in Sources */,
+				AA00000130000001000000AD /* GitHubSettingsView.swift in Sources */,
+				AA00000130000001000000AE /* ProgressSheetView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
