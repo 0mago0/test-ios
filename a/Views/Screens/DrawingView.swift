@@ -28,6 +28,9 @@ struct DrawingView: View {
     @State private var completedCharacters: Set<String> = []
     @State private var isLoadingCompletions = false
     @State private var completionError: String? = nil
+    @State private var dragOffset: CGFloat = 0  // 記錄滑動偏移量
+    @State private var visualIndex: Double = Double(UserDefaults.standard.integer(forKey: "CurrentIndex")) // 用於平滑動畫的顯示索引
+    
     // Simple drawing data for non-PencilKit mode
     @State private var simpleStrokes: [[StrokePoint]] = []
     @State private var currentSimpleStroke: [StrokePoint] = []
@@ -110,74 +113,115 @@ struct DrawingView: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                         
-                        HStack(alignment: .center, spacing: 8) {
-                            // 前三個字
-                            ForEach((1...3).reversed(), id: \.self) { offset in
-                                let index = currentIndex - offset
-                                if index >= 0 {
-                                    Text(questionBank[index])
-                                        .font(.system(size: 48, weight: .regular))
-                                        .foregroundColor(completedCharacters.contains(questionBank[index]) ? .green.opacity(0.5) : .gray.opacity(0.3))
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.1)
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            withAnimation { jumpToQuestion(index: index) }
-                                        }
-                                } else {
-                                    Text("　")
-                                        .font(.system(size: 48))
-                                        .opacity(0)
-                                        .minimumScaleFactor(0.1)
-                                }
-                            }
+                        // MARK: Carousel
+                        GeometryReader { geo in
+                            let center = geo.size.width / 2
+                            let baseItemWidth: CGFloat = 40 // 基礎間距：縮小兩側間距
                             
-                            let centerText = previewCharacter ?? "..."
-                            Text(centerText)
-                                .font(.system(size: 80, weight: .bold))
-                                .foregroundColor(completedCharacters.contains(centerText) ? .green : .primary)
-                                .frame(height: 100)
-                                .padding(.horizontal, 4)
-                                .lineLimit(1)
-                                .layoutPriority(1)
+                            // 動態計算可見範圍
+                            // 使用 visualIndex 而不是 currentIndex 來計算，避免 currentIndex 和 dragOffset 變動造成的不連續
+                            let centerIndex = Int(round(visualIndex))
                             
-                            // 後三個字
-                            ForEach(1...3, id: \.self) { offset in
-                                let index = currentIndex + offset
-                                if index < questionBank.count {
+                            // 修正計算 range 的方式：
+                            // 我們需要確保即將進入畫面的元素也被渲染出來
+                            // visualIndex 變化時，左右兩側的元素會像流一樣進出
+                            let range = 50 // 加大渲染範圍，避免邊緣消失
+                            let minIndex = max(0, centerIndex - range)
+                            let maxIndex = min(questionBank.count - 1, centerIndex + range)
+                            
+                            ZStack {
+                                ForEach(minIndex...maxIndex, id: \.self) { index in
+                                    // 核心修改：將 dragOffset 隱式整合進 visual calculation
+                                    // 手勢進行中: visualIndex 不變，dragOffset 變 (效果: (i - visual)*w + drag)
+                                    // 手勢結束時: visualIndex 變 (target), dragOffset 變 (0) (效果: (i - target)*w + 0)
+                                    // 若 (visual - target)*w == drag，則無縫。
+                                    
+                                    // 為了讓上述公式統一，我們定義一個 effectiveVisualIndex:
+                                    // effectiveVisualIndex = visualIndex - (dragOffset / baseItemWidth)
+                                    // 這樣邏輯位置 = (index - effectiveVisualIndex) * w
+                                    
+                                    let effectiveVisualIndex = CGFloat(visualIndex) - (dragOffset / baseItemWidth)
+                                    let offsetFromVisualCenter = CGFloat(index) - effectiveVisualIndex
+                                    
+                                    // 1. 邏輯位置
+                                    let logicalOffset = offsetFromVisualCenter * baseItemWidth
+                                    
+                                    // 2. 視覺位置 (Non-linear): 中間擠開，兩側緊密
+                                    let sign: CGFloat = logicalOffset > 0 ? 1 : -1
+                                    let maxShift: CGFloat = 60
+                                    let decay: CGFloat = 60
+                                    let shift = sign * maxShift * (1 - exp(-abs(logicalOffset) / decay))
+                                    let visualPos = logicalOffset + shift
+                                    
+                                    let dist = abs(visualPos)
+                                    let scale = max(0.4, 1.0 - (dist / 220))
+                                    let opacity = max(0.2, 1.0 - (dist / 180))
+                                    
+                                    let isCompleted = completedCharacters.contains(questionBank[index])
+                                    let color: Color = isCompleted ? .green : .primary
+                                    
                                     Text(questionBank[index])
-                                        .font(.system(size: 48, weight: .regular))
-                                        .foregroundColor(completedCharacters.contains(questionBank[index]) ? .green.opacity(0.5) : .gray.opacity(0.3))
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.1)
-                                        .contentShape(Rectangle())
+                                        .font(.system(size: 80, weight: .bold))
+                                        .foregroundColor(color)
+                                        .scaleEffect(scale)
+                                        .opacity(opacity)
+                                        .position(x: center + visualPos, y: geo.size.height / 2)
                                         .onTapGesture {
-                                            withAnimation { jumpToQuestion(index: index) }
+                                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                                                jumpToQuestion(index: index)
+                                                // 同步 visualIndex
+                                                visualIndex = Double(index)
+                                            }
                                         }
-                                } else {
-                                    Text("　")
-                                        .font(.system(size: 48))
-                                        .opacity(0)
-                                        .minimumScaleFactor(0.1)
                                 }
                             }
                         }
+                        .frame(height: 100)
                         .contentShape(Rectangle())
                         .gesture(
                             DragGesture()
+                                .onChanged { value in
+                                    // 手勢變更時，直接修改 visualIndex
+                                    // 這裡使用增量更新會比較準確，但 onChange 只能給出總量 (translation)
+                                    // 所以我們採用以下的策略：
+                                    // 記錄手勢開始時的 visualIndex (snapshot) 然後加上 translation
+                                    // 但因為 @State 限制，這裡我們改用一個簡單的 hack：
+                                    // 我們假設手勢非常連續，每次變動我們都基於「當前顯示的狀態」去做微調？不，這會漂移。
+                                    
+                                    // 更好的做法：使用 dragOffset 儲存當前手勢的位移，
+                                    // 但在渲染時，將 visualizeIndex 視為基準。
+                                    // 當手勢 *結束* 時，才把 dragOffset 合併進 visualIndex 并清零。
+                                    // 在手勢 *進行中*，上面的渲染邏輯需要改成：
+                                    // let offsetFromVisualCenter = CGFloat(index) - (CGFloat(visualIndex) - dragOffset / baseItemWidth)
+                                    dragOffset = value.translation.width
+                                }
                                 .onEnded { value in
-                                    let threshold: CGFloat = 30
-                                    if value.translation.width < -threshold {
-                                        // 左滑，下一題
-                                        withAnimation { goToNextQuestion() }
-                                    } else if value.translation.width > threshold {
-                                        // 右滑，上一題
-                                        withAnimation {
-                                            if !questionBank.isEmpty {
-                                                let newIndex = currentIndex > 0 ? currentIndex - 1 : questionBank.count - 1
-                                                jumpToQuestion(index: newIndex)
-                                            }
-                                        }
+                                    let baseItemWidth: CGFloat = 40
+                                    
+                                    // 1. 計算目標 visualIndex
+                                    // 注意：dragOffset > 0 (右滑) 代表我們想看左邊的字 (index 減小)
+                                    // 所以 visualOffset = visualIndex - (dragOffset / width)
+                                    let currentVisualPos = visualIndex - (value.translation.width / baseItemWidth)
+                                    let predictedPos = currentVisualPos - (value.velocity.width * 0.15 / baseItemWidth)
+                                    
+                                    var targetIndex = Int(round(predictedPos))
+                                    targetIndex = max(0, min(targetIndex, questionBank.count - 1))
+                                    
+                                    // 2. 執行「無縫」動畫
+                                    // 我們要讓 visualIndex 動畫到 targetIndex
+                                    // 同時 dragOffset 瞬間歸零
+                                    // 渲染公式如果包含 dragOffset，這兩個必須同時發生
+                                    
+                                    // 但我們如果直接改 visualIndex，上面的 ForEach 邏輯如果不包含 dragOffset 就會怪怪的。
+                                    // 所以我們需要修改上面的 ForEach 渲染邏輯，讓它包含 dragOffset。
+                                    
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 1.0)) {
+                                        visualIndex = Double(targetIndex)
+                                        dragOffset = 0
+                                    }
+                                    
+                                    if targetIndex != currentIndex {
+                                        jumpToQuestion(index: targetIndex)
                                     }
                                 }
                         )
@@ -446,6 +490,10 @@ struct DrawingView: View {
             let restoreState = {
                 DispatchQueue.main.async {
                     self.currentIndex = savedIndex
+                    // 同步 visualIndex 狀態以確保 Carousel 顯示正確
+                    withAnimation {
+                        self.visualIndex = Double(savedIndex)
+                    }
                     UserDefaults.standard.set(savedIndex, forKey: "CurrentIndex")
                     self.pkDrawing = savedDrawing
                 }
@@ -487,6 +535,10 @@ struct DrawingView: View {
             let restoreState = {
                 DispatchQueue.main.async {
                     self.currentIndex = savedIndex
+                    // 同步 visualIndex
+                    withAnimation {
+                        self.visualIndex = Double(savedIndex)
+                    }
                     UserDefaults.standard.set(savedIndex, forKey: "CurrentIndex")
                     self.simpleStrokes = savedStrokes
                 }
@@ -636,6 +688,10 @@ struct DrawingView: View {
                 self.currentIndex = 0
             }
             UserDefaults.standard.set(self.currentIndex, forKey: "CurrentIndex")
+            // 同步 visualIndex 以便 Carousel 自動捲動到下一題
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                self.visualIndex = Double(self.currentIndex)
+            }
         }
         self.isUploading = false
         self.clearDrawings()
@@ -659,6 +715,7 @@ struct DrawingView: View {
     func updateQuestionBankFromLoader() {
         self.questionBank = characterLoader.loadedCharacters
         self.currentIndex = 0
+        self.visualIndex = 0 // 重置 visualIndex
         UserDefaults.standard.set(0, forKey: "CurrentIndex")
         self.clearDrawings()
     }
