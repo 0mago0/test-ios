@@ -160,10 +160,6 @@ struct DrawingView: View {
     @AppStorage(GHKeys.branch) private var ghBranch: String = "main"
     @AppStorage(GHKeys.prefix) private var ghPrefix: String = "handwriting"
     @State private var showingSettings = false
-    @State private var showUploadHint = false
-    @State private var uploadErrorMessage: String? = nil
-    @State private var showUploadError = false
-    @State private var showUploadSuccess = false
     @State private var toastMessage: String? = nil
     @State private var toastType: ToastType = .success
     @State private var isUploading = false
@@ -378,105 +374,10 @@ struct DrawingView: View {
                 }
             )
         }
-        .alert("請先完成 GitHub 設定", isPresented: $showUploadHint) {
-            Button("前往設定") { showingSettings = true }
-            Button("取消", role: .cancel) {}
-        }
         .overlay(alignment: .top) {
             if let message = toastMessage {
                 ToastView(message: message, type: toastType)
                     .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-    }
-
-    // 匯出 SVG
-    func exportSVG(drawing: PKDrawing, fileName: String) {
-        isUploading = true
-        var svgShapes = ""
-
-        for stroke in drawing.strokes {
-            let samples = interpolatedPoints(from: stroke.path)
-            guard !samples.isEmpty else { continue }
-            if samples.count == 1 {
-                let point = samples[0]
-                let radius = max(0.5, point.size.width / 2)
-                svgShapes += "<circle cx=\"\(svgNumber(point.location.x))\" cy=\"\(svgNumber(point.location.y))\" r=\"\(svgNumber(radius))\" fill=\"black\" />\n"
-                continue
-            }
-
-            guard let filledPath = filledCGPath(for: samples) else { continue }
-            let d = svgPathData(from: filledPath)
-            svgShapes += """
-<path d="\(d)"
-      fill="black"
-      fill-rule="nonzero" />
-"""
-        }
-
-        let svg = """
-        <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
-        \(svgShapes)</svg>
-        """
-        
-        let fileManager = FileManager.default
-        if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
-            let fileURL = docDir.appendingPathComponent("\(fileName).svg")
-            do {
-                try svg.write(to: fileURL, atomically: true, encoding: .utf8)
-                print("✅ SVG 已儲存: \(fileURL)")
-                let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
-                guard !ghOwner.isEmpty, !ghRepo.isEmpty, !token.isEmpty else {
-                    print("❌ GitHub 設定未完成：owner/repo/token 缺一不可")
-                    DispatchQueue.main.async {
-                        toastMessage = "請先完成 GitHub 設定"
-                        toastType = .error
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                            toastMessage = nil
-                        }
-                    }
-                    return
-                }
-                let pathInRepo: String = {
-                    let base = ghPrefix.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                    return base.isEmpty ? fileURL.lastPathComponent : "\(base)/\(fileURL.lastPathComponent)"
-                }()
-                uploadToGitHub(
-                    fileURL: fileURL,
-                    repoOwner: ghOwner,
-                    repoName: ghRepo,
-                    branch: ghBranch,
-                    pathInRepo: pathInRepo,
-                    token: token,
-                    onSuccess: {
-                        DispatchQueue.main.async {
-                            toastMessage = "已成功上傳到 GitHub"
-                            toastType = .success
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                                toastMessage = nil
-                                goToNextQuestion()
-                            }
-                        }
-                    },
-                    onError: { error in
-                        DispatchQueue.main.async {
-                            toastMessage = error
-                            toastType = .error
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                                toastMessage = nil
-                            }
-                        }
-                    }
-                )
-            } catch {
-                print("❌ 儲存失敗: \(error)")
-                DispatchQueue.main.async {
-                    toastMessage = "儲存 SVG 失敗：\(error.localizedDescription)"
-                    toastType = .error
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                        toastMessage = nil
-                    }
-                }
             }
         }
     }
@@ -692,115 +593,6 @@ struct DrawingView: View {
         }
     }
 
-    func exportSVGFromSimpleStrokes(strokes: [[StrokePoint]], fileName: String) {
-        isUploading = true
-        var svgShapes = ""
-        for stroke in strokes {
-            guard !stroke.isEmpty else { continue }
-            if stroke.count == 1 {
-                let p = stroke[0]
-                let r = max(0.5, p.force / 2)
-                svgShapes += "<circle cx=\"\(p.point.x)\" cy=\"\(p.point.y)\" r=\"\(r)\" fill=\"black\" />\n"
-                continue
-            }
-            var d = "M \(stroke[0].point.x) \(stroke[0].point.y) "
-            for i in 1..<stroke.count {
-                d += "L \(stroke[i].point.x) \(stroke[i].point.y) "
-            }
-            let width = max(0.5, stroke.first?.force ?? 1)
-            svgShapes += "<path d=\"\(d)\" stroke=\"black\" fill=\"none\" stroke-width=\"\(width)\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />\n"
-        }
-
-        let svg = """
-        <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
-        \(svgShapes)</svg>
-        """
-
-        let fileManager = FileManager.default
-        if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
-            let fileURL = docDir.appendingPathComponent("\(fileName).svg")
-            do {
-                try svg.write(to: fileURL, atomically: true, encoding: .utf8)
-                print("✅ SVG (simple) 已儲存: \(fileURL)")
-                let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
-                guard !ghOwner.isEmpty, !ghRepo.isEmpty, !token.isEmpty else {
-                    print("❌ GitHub 設定未完成：owner/repo/token 缺一不可")
-                    DispatchQueue.main.async {
-                        isUploading = false
-                        toastMessage = "請先完成 GitHub 設定"
-                        toastType = .error
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                            toastMessage = nil
-                        }
-                    }
-                    return
-                }
-                let pathInRepo: String = {
-                    let base = ghPrefix.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                    return base.isEmpty ? fileURL.lastPathComponent : "\(base)/\(fileURL.lastPathComponent)"
-                }()
-                uploadToGitHub(
-                    fileURL: fileURL,
-                    repoOwner: ghOwner,
-                    repoName: ghRepo,
-                    branch: ghBranch,
-                    pathInRepo: pathInRepo,
-                    token: token,
-                    onSuccess: {
-                        DispatchQueue.main.async {
-                            self.isUploading = false
-                            self.toastMessage = "✅ 已成功上傳到 GitHub"
-                            self.toastType = .success
-                        }
-                        // 使用 DispatchQueue 的延遲以確保充分隔離
-                        let deadline = DispatchTime.now() + .milliseconds(2000)
-                        DispatchQueue.main.asyncAfter(deadline: deadline) {
-                            // 先清除 toast
-                            self.toastMessage = nil
-                        }
-                        let nextQuestionDeadline = DispatchTime.now() + .milliseconds(2100)
-                        DispatchQueue.main.asyncAfter(deadline: nextQuestionDeadline) {
-                            // 再進行下一題
-                            if !self.questionBank.isEmpty {
-                                if self.currentIndex < self.questionBank.count - 1 {
-                                    self.currentIndex += 1
-                                } else {
-                                    self.currentIndex = 0
-                                }
-                                UserDefaults.standard.set(self.currentIndex, forKey: "CurrentIndex")
-                            }
-                            self.isUploading = false
-                            self.pkDrawing = PKDrawing()
-                            self.simpleStrokes = []
-                            self.currentSimpleStroke = []
-                            self.showingProgressDialog = false
-                        }
-                    },
-                    onError: { error in
-                        DispatchQueue.main.async {
-                            self.isUploading = false
-                            self.toastMessage = error
-                            self.toastType = .error
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                            self.toastMessage = nil
-                        }
-                    }
-                )
-            } catch {
-                print("❌ 儲存 SVG 失敗: \(error)")
-                DispatchQueue.main.async {
-                    isUploading = false
-                    toastMessage = "儲存 SVG 失敗：\(error.localizedDescription)"
-                    toastType = .error
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                        toastMessage = nil
-                    }
-                }
-            }
-        }
-    }
-
     func jumpToQuestion(index: Int) {
         guard !questionBank.isEmpty else { return }
         let clamped = max(0, min(index, questionBank.count - 1))
@@ -971,20 +763,6 @@ struct DrawingView: View {
 struct ContentView: View {
     var body: some View {
         DrawingView()
-    }
-}
-
-struct ActivityViewController: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    let applicationActivities: [UIActivity]? = nil
-    
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        let controller = UIActivityViewController(activityItems: activityItems, applicationActivities: applicationActivities)
-        return controller
-    }
-    
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
-        // No update needed
     }
 }
 
