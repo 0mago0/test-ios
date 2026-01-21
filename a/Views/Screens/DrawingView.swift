@@ -72,7 +72,7 @@ struct DrawingView: View {
                                 .font(.title3)
                                 .foregroundColor(.primary)
                                 .padding(10)
-                                .background(Color(UIColor.secondarySystemBackground))
+                                .background(Color(UIColor.secondarySystemGroupedBackground))
                                 .clipShape(Circle())
                         }
                         
@@ -96,7 +96,7 @@ struct DrawingView: View {
                                 .font(.title3)
                                 .foregroundColor(.primary)
                                 .padding(10)
-                                .background(Color(UIColor.secondarySystemBackground))
+                                .background(Color(UIColor.secondarySystemGroupedBackground))
                                 .clipShape(Circle())
                         }
                     }
@@ -184,7 +184,7 @@ struct DrawingView: View {
                     }
                     .frame(maxWidth: 500)
                     .padding(.vertical, 20)
-                    .background(Color(UIColor.systemBackground))
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
                     .cornerRadius(20)
                     .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 5)
                     .padding(.horizontal)
@@ -226,7 +226,7 @@ struct DrawingView: View {
                                 .frame(width: 25)
                         }
                         .padding(10)
-                        .background(Color(UIColor.secondarySystemBackground))
+                        .background(Color(UIColor.systemGroupedBackground))
                         .cornerRadius(12)
                         
                         HStack(spacing: 12) {
@@ -245,7 +245,7 @@ struct DrawingView: View {
                                         .frame(width: 32, height: 32)
                                 }
                             }
-                            .background(Color(UIColor.secondarySystemBackground))
+                            .background(Color(UIColor.systemGroupedBackground))
                             .cornerRadius(12)
                             .foregroundColor(.primary)
                             
@@ -309,7 +309,7 @@ struct DrawingView: View {
                     }
                     .padding()
                     .frame(width: 300)
-                    .background(Color(UIColor.systemBackground))
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
                     .cornerRadius(24)
                     .shadow(color: Color.black.opacity(0.1), radius: 10, y: 5)
                     .padding(.bottom, 8)
