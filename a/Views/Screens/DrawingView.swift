@@ -17,11 +17,14 @@ struct DrawingView: View {
     @AppStorage(GHKeys.repo)   private var ghRepo: String = ""
     @AppStorage(GHKeys.branch) private var ghBranch: String = "main"
     @AppStorage(GHKeys.prefix) private var ghPrefix: String = "handwriting"
+    @AppStorage("HideInstructionsOnStartup") private var hideInstructionsOnStartup: Bool = false
     @State private var showingSettings = false
+    @State private var hasScrolledToBottom = false // 用於判斷是否已閱讀完畢說明
     @State private var toastMessage: String? = nil
     @State private var toastType: ToastType = .success
     @State private var isUploading = false
     @State private var showingProgressDialog = false
+    @State private var showingHelp = false
     @State private var brushWidth: CGFloat = 5
     @State private var usePencilKit: Bool = true
     @State private var canvasScalePercent: Int = 100 // 50-100%
@@ -80,12 +83,18 @@ struct DrawingView: View {
                         }
                         
                         Spacer()
-                        
-                        Text("手寫採集")
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        
-                        Spacer()
+                                                
+                        Button {
+                            hasScrolledToBottom = false
+                            showingHelp = true
+                        } label: {
+                            Image(systemName: "questionmark.circle")
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                                .padding(10)
+                                .background(Color(UIColor.secondarySystemGroupedBackground))
+                                .clipShape(Circle())
+                        }
                         
                         Button {
                             DispatchQueue.main.async {
@@ -395,7 +404,170 @@ struct DrawingView: View {
                         .padding(.top, 50)
                 }
             }
+            .sheet(isPresented: $showingHelp) {
+                NavigationView {
+                    List {
+                        Section(header: Text("GitHub 設定教學")) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Group {
+                                    Text("1. 取得 Token")
+                                        .font(.headline)
+                                    Text("前往 GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens，產生新的 Token。")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Group {
+                                    Text("2. 設定權限")
+                                        .font(.headline)
+                                    Text("• Repository access: 選取 Only select repositories 並選擇您的儲存庫。\n• Permissions: 展開 Repository permissions，將 `Contents` 設為 `Read and write`。")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Group {
+                                    Text("3. 填寫資訊")
+                                        .font(.headline)
+                                    Text("點擊本 App 左上角的齒輪按鈕，填入 Owner (帳號)、Repo (倉庫名) 與 Token。")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        
+                        Section(header: Text("介面導覽")) {
+                            HStack {
+                                Image(systemName: "gearshape.fill")
+                                    .foregroundColor(.gray)
+                                    .frame(width: 24)
+                                VStack(alignment: .leading) {
+                                    Text("設定")
+                                        .font(.headline)
+                                    Text("設定 GitHub 連線資訊")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            
+                            HStack {
+                                Image(systemName: "chart.bar.xaxis")
+                                    .foregroundColor(.gray)
+                                    .frame(width: 24)
+                                VStack(alignment: .leading) {
+                                    Text("進度")
+                                        .font(.headline)
+                                    Text("查看蒐集進度與快速跳轉")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
+                            HStack {
+                                Image(systemName: "questionmark.circle")
+                                    .foregroundColor(.gray)
+                                    .frame(width: 24)
+                                VStack(alignment: .leading) {
+                                    Text("說明")
+                                        .font(.headline)
+                                    Text("顯示此操作說明頁面")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+
+                        Section(header: Text("操作說明")) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: "hand.draw")
+                                        .foregroundColor(.blue)
+                                    Text("書寫")
+                                        .font(.headline)
+                                }
+                                Text("在中央白色畫布區域手寫上方提示的文字。寫完後點擊「送出」會自動保存並跳至下一題。")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: "arrow.left.and.right.circle")
+                                        .foregroundColor(.green)
+                                    Text("選字")
+                                        .font(.headline)
+                                }
+                                Text("滑動上方的文字轉盤可以快速切換到想寫的字。點擊文字可以直接跳轉。")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: "slider.horizontal.3")
+                                        .foregroundColor(.orange)
+                                    Text("工具")
+                                        .font(.headline)
+                                }
+                                Text("下方控制列可調整筆畫粗細 (1-20) 和畫布縮放比例 (50-100%)。")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        
+                        Section(header: Text("注意事項")) {
+                            Label("請盡量將字寫在格線中央", systemImage: "squareshape.split.2x2.dotted")
+                            Label("綠色字體代表已經寫過並上傳成功", systemImage: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Label("若網路不穩，請先完成 GitHub 設定以確保資料同步", systemImage: "wifi.exclamationmark")
+                            Label("建議筆畫粗細：有壓感 10pt 以下，無壓感 5pt 以下", systemImage: "scribble")
+                            Label("若無壓感模式無法書寫，請多按幾下「清除」鍵重試", systemImage: "exclamationmark.triangle")
+                            
+                            // 底部偵測 Views
+                            Color.clear
+                                .frame(height: 1)
+                                .onAppear {
+                                    hasScrolledToBottom = true
+                                }
+                        }
+                    }
+                    .navigationTitle("使用說明")
+                    .toolbar {
+                        ToolbarItem(placement: .bottomBar) {
+                            HStack {
+                                Toggle("不再顯示此視窗", isOn: $hideInstructionsOnStartup)
+                                    .toggleStyle(SwitchToggleStyle(tint: .blue))
+                                    .font(.subheadline)
+                                
+                                Spacer()
+                                
+                                Button("知道了") {
+                                    showingHelp = false
+                                }
+                                .font(.headline)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 8)
+                                .background(hasScrolledToBottom ? Color.blue : Color.gray)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                                .disabled(!hasScrolledToBottom)
+                            }
+                            .padding(.vertical, 8)
+                        }
+                    }
+                }
+                .interactiveDismissDisabled(!hasScrolledToBottom)
+            }
             .task {
+                if !hideInstructionsOnStartup {
+                    // 延遲一點點讓 UI 先準備好
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    hasScrolledToBottom = false
+                    showingHelp = true
+                }
                 refreshCompletionStatus()
             }
         }
