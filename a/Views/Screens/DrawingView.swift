@@ -199,23 +199,29 @@ struct DrawingView: View {
                                     let baseItemWidth: CGFloat = 40
                                     
                                     // 1. 計算目標 visualIndex
-                                    // 注意：dragOffset > 0 (右滑) 代表我們想看左邊的字 (index 減小)
-                                    // 所以 visualOffset = visualIndex - (dragOffset / width)
                                     let currentVisualPos = visualIndex - (value.translation.width / baseItemWidth)
-                                    let predictedPos = currentVisualPos - (value.velocity.width * 0.15 / baseItemWidth)
+                                    //稍微降低速度係數，讓滑動更受控
+                                    let predictedPos = currentVisualPos - (value.velocity.width * 0.1 / baseItemWidth)
                                     
                                     var targetIndex = Int(round(predictedPos))
                                     targetIndex = max(0, min(targetIndex, questionBank.count - 1))
                                     
-                                    // 2. 執行「無縫」動畫
-                                    // 我們要讓 visualIndex 動畫到 targetIndex
-                                    // 同時 dragOffset 瞬間歸零
-                                    // 渲染公式如果包含 dragOffset，這兩個必須同時發生
+                                    // 限制單次滑動最大跳躍距離，避免跳太遠導致動畫看起來像瞬移
+                                    let maxJump = 15
+                                    let currentIndexInt = Int(round(currentVisualPos))
+                                    let jumpDist = targetIndex - currentIndexInt
+                                    if abs(jumpDist) > maxJump {
+                                        targetIndex = currentIndexInt + (jumpDist > 0 ? maxJump : -maxJump)
+                                    }
                                     
-                                    // 但我們如果直接改 visualIndex，上面的 ForEach 邏輯如果不包含 dragOffset 就會怪怪的。
-                                    // 所以我們需要修改上面的 ForEach 渲染邏輯，讓它包含 dragOffset。
+                                    // 2. 執行動畫
+                                    // 動態計算動畫時間：距離越遠，時間越長，避免看起來像瞬移
+                                    let distanceToTravel = abs(Double(targetIndex) - currentVisualPos)
+                                    // 基礎 0.4s (稍微調慢)，每多移動 1 個單位增加 0.02s，上限 0.8s
+                                    let response = min(0.8, max(0.4, 0.3 + (distanceToTravel * 0.02)))
                                     
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 1.0)) {
+                                    // 使用 dampingFraction: 1.0 確保沒有回彈 (Critical Damping)
+                                    withAnimation(.spring(response: response, dampingFraction: 1.0)) {
                                         visualIndex = Double(targetIndex)
                                         dragOffset = 0
                                     }
