@@ -18,12 +18,26 @@ struct ToastView: View {
     let message: String
     let type: ToastType
     
+    @Environment(\.colorScheme) var colorScheme
+    
     var themeColor: Color {
         type == .success ? Color.blue : Color.red
     }
     
     var iconName: String {
         type == .success ? "checkmark" : "exclamationmark"
+    }
+    
+    var titleTextColor: Color {
+        colorScheme == .dark ? .white : .black.opacity(0.8)
+    }
+    
+    var messageTextColor: Color {
+        colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.6)
+    }
+    
+    var backgroundColor: Color {
+        colorScheme == .dark ? Color(UIColor.systemGray6) : themeColor.opacity(0.12)
     }
     
     var body: some View {
@@ -42,11 +56,11 @@ struct ToastView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(type == .success ? "Success" : "Error")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.black.opacity(0.8))
+                    .foregroundColor(titleTextColor)
                 
                 Text(message)
                     .font(.system(size: 12))
-                    .foregroundColor(.black.opacity(0.6))
+                    .foregroundColor(messageTextColor)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -58,14 +72,14 @@ struct ToastView: View {
         .padding(.trailing, 16)
         .background(
             ZStack(alignment: .leading) {
-                themeColor.opacity(0.12)
+                backgroundColor
                 Rectangle()
                     .fill(themeColor)
                     .frame(width: 5)
             }
         )
         .cornerRadius(8)
-        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+        .shadow(color: Color.black.opacity(0.15), radius: 5, x: 0, y: 2)
         .padding(.horizontal, 24)
         .padding(.top, 10)
         .fixedSize(horizontal: false, vertical: true)

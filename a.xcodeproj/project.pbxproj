@@ -14,7 +14,6 @@
 		377AD2DE2E6AC47D00666E89 /* aTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377AD2DD2E6AC47D00666E89 /* aTests.swift */; };
 		377AD2E82E6AC47D00666E89 /* aUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377AD2E72E6AC47D00666E89 /* aUITests.swift */; };
 		377AD2EA2E6AC47D00666E89 /* aUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377AD2E92E6AC47D00666E89 /* aUITestsLaunchTests.swift */; };
-		DD816F4E2F20B7740031DBF1 /* CharacterLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD816F4D2F20B7730031DBF1 /* CharacterLoader.swift */; };
 		AA000001300000010000001A /* StrokePoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001300000010000000A /* StrokePoint.swift */; };
 		AA000001300000010000001B /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001300000010000000B /* KeychainHelper.swift */; };
 		AA000001300000010000001C /* GHKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001300000010000000C /* GHKeys.swift */; };
@@ -26,6 +25,7 @@
 		AA00000130000001000000AC /* DrawingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A2 /* DrawingView.swift */; };
 		AA00000130000001000000AD /* GitHubSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A3 /* GitHubSettingsView.swift */; };
 		AA00000130000001000000AE /* ProgressSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A4 /* ProgressSheetView.swift */; };
+		DD816F4E2F20B7740031DBF1 /* CharacterLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD816F4D2F20B7730031DBF1 /* CharacterLoader.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,7 +56,6 @@
 		377AD2E32E6AC47D00666E89 /* aUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = aUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		377AD2E72E6AC47D00666E89 /* aUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = aUITests.swift; sourceTree = "<group>"; };
 		377AD2E92E6AC47D00666E89 /* aUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = aUITestsLaunchTests.swift; sourceTree = "<group>"; };
-		DD816F4D2F20B7730031DBF1 /* CharacterLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterLoader.swift; sourceTree = "<group>"; };
 		AA000001300000010000000A /* StrokePoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrokePoint.swift; sourceTree = "<group>"; };
 		AA000001300000010000000B /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		AA000001300000010000000C /* GHKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GHKeys.swift; sourceTree = "<group>"; };
@@ -68,6 +67,7 @@
 		AA00000130000001000000A2 /* DrawingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingView.swift; sourceTree = "<group>"; };
 		AA00000130000001000000A3 /* GitHubSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubSettingsView.swift; sourceTree = "<group>"; };
 		AA00000130000001000000A4 /* ProgressSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressSheetView.swift; sourceTree = "<group>"; };
+		DD816F4D2F20B7730031DBF1 /* CharacterLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterLoader.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -513,7 +513,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"a/Preview Content\"";
-				DEVELOPMENT_TEAM = LWKVJZZ857;
+				DEVELOPMENT_TEAM = 5F3SUK5L3X;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
