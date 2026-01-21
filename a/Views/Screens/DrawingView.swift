@@ -146,29 +146,28 @@ struct DrawingView: View {
                     Spacer()
                     
                     // MARK: Bottom Control Panel
-                    VStack(spacing: 20) {
-                        // Slider & Scale
-                        HStack(spacing: 16) {
-                            // Brush Size
-                            HStack {
-                                Image(systemName: "scribble")
-                                    .foregroundColor(.secondary)
-                                Slider(value: $brushWidth, in: 1...20, step: 1)
-                                Text("\(Int(brushWidth))")
-                                    .font(.caption)
-                                    .monospacedDigit()
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 25)
-                            }
-                            .padding(10)
-                            .background(Color(UIColor.secondarySystemBackground))
-                            .cornerRadius(12)
-                            
+                    VStack(spacing: 12) {
+                        // Brush Size
+                        HStack {
+                            Image(systemName: "scribble")
+                                .foregroundColor(.secondary)
+                            Slider(value: $brushWidth, in: 1...20, step: 1)
+                            Text("\(Int(brushWidth))")
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundColor(.secondary)
+                                .frame(width: 25)
+                        }
+                        .padding(10)
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .cornerRadius(12)
+                        
+                        HStack(spacing: 12) {
                             // Scale
                             HStack(spacing: 0) {
                                 Button(action: { canvasScalePercent = max(50, canvasScalePercent - 10) }) {
                                     Image(systemName: "minus")
-                                        .frame(width: 30, height: 30)
+                                        .frame(width: 32, height: 32)
                                 }
                                 Text("\(canvasScalePercent)%")
                                     .font(.caption)
@@ -176,20 +175,20 @@ struct DrawingView: View {
                                     .frame(width: 40)
                                 Button(action: { canvasScalePercent = min(100, canvasScalePercent + 10) }) {
                                     Image(systemName: "plus")
-                                        .frame(width: 30, height: 30)
+                                        .frame(width: 32, height: 32)
                                 }
                             }
                             .background(Color(UIColor.secondarySystemBackground))
                             .cornerRadius(12)
                             .foregroundColor(.primary)
+                            
+                            // Mode Segment
+                            Picker("Mode", selection: $usePencilKit) {
+                                Text("有壓感").tag(true)
+                                Text("無壓感").tag(false)
+                            }
+                            .pickerStyle(.segmented)
                         }
-                        
-                        // Mode Segment
-                        Picker("Mode", selection: $usePencilKit) {
-                            Text("有壓感").tag(true)
-                            Text("無壓感").tag(false)
-                        }
-                        .pickerStyle(.segmented)
                         .onChange(of: characterLoader.loadedText) { _ in
                             // 當字庫更新時，同步更新題庫
                             Task { @MainActor in
@@ -242,10 +241,10 @@ struct DrawingView: View {
                         }
                     }
                     .padding()
+                    .frame(width: 300)
                     .background(Color(UIColor.systemBackground))
                     .cornerRadius(24)
                     .shadow(color: Color.black.opacity(0.1), radius: 10, y: 5)
-                    .padding(.horizontal)
                     .padding(.bottom, 8)
                 }
             }
