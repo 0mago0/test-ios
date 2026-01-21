@@ -49,7 +49,72 @@ struct Crosshair: View {
     }
 }
 
-// MARK: - Keychain helper & keys
+// MARK: - Toast Message Type
+enum ToastType {
+    case success
+    case error
+}
+
+// MARK: - Toast View
+struct ToastView: View {
+    let message: String
+    let type: ToastType
+    
+    var themeColor: Color {
+        type == .success ? Color.blue : Color.red
+    }
+    
+    var iconName: String {
+        type == .success ? "checkmark" : "exclamationmark"
+    }
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // 圖標圓圈
+            ZStack {
+                Circle()
+                    .fill(themeColor)
+                    .frame(width: 24, height: 24)
+                Image(systemName: iconName)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            
+            // 文字內容
+            VStack(alignment: .leading, spacing: 2) {
+                Text(type == .success ? "Success" : "Error")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.black.opacity(0.8))
+                
+                Text(message)
+                    .font(.system(size: 12))
+                    .foregroundColor(.black.opacity(0.6))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            
+            Spacer(minLength: 0) // 填充水平空間
+        }
+        .padding(.vertical, 12)
+        .padding(.leading, 12)
+        .padding(.trailing, 16)
+        .background(
+            ZStack(alignment: .leading) {
+                themeColor.opacity(0.12)
+                Rectangle()
+                    .fill(themeColor)
+                    .frame(width: 5)
+            }
+        )
+        .cornerRadius(8)
+        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+        .padding(.horizontal, 24) // 螢幕左右邊距
+        .padding(.top, 10)
+        .fixedSize(horizontal: false, vertical: true) // 關鍵：防止高度被撐開
+    }
+}
+
+// MARK: - Drawing View
 enum KeychainHelper {
     static func save(key: String, value: String) {
         let data = Data(value.utf8)
@@ -98,6 +163,11 @@ struct DrawingView: View {
     @AppStorage(GHKeys.prefix) private var ghPrefix: String = "handwriting"
     @State private var showingSettings = false
     @State private var showUploadHint = false
+    @State private var uploadErrorMessage: String? = nil
+    @State private var showUploadError = false
+    @State private var showUploadSuccess = false
+    @State private var toastMessage: String? = nil
+    @State private var toastType: ToastType = .success
     @State private var showingProgressDialog = false
     @State private var brushWidth: CGFloat = 5
     @State private var usePencilKit: Bool = true
@@ -289,6 +359,12 @@ struct DrawingView: View {
             Button("前往設定") { showingSettings = true }
             Button("取消", role: .cancel) {}
         }
+        .overlay(alignment: .top) {
+            if let message = toastMessage {
+                ToastView(message: message, type: toastType)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
     }
 
     // 匯出 SVG
@@ -325,18 +401,15 @@ struct DrawingView: View {
             do {
                 try svg.write(to: fileURL, atomically: true, encoding: .utf8)
                 print("✅ SVG 已儲存: \(fileURL)")
-                let shareURL = makeShareCopyForSharing(of: fileURL, originalName: fileName) ?? fileURL
-                DispatchQueue.main.async {
-                    exportURL = shareURL
-                    showingShareSheet = true
-                }
                 let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
                 guard !ghOwner.isEmpty, !ghRepo.isEmpty, !token.isEmpty else {
                     print("❌ GitHub 設定未完成：owner/repo/token 缺一不可")
                     DispatchQueue.main.async {
-                        showingShareSheet = false
-                        showingSettings = false
-                        showUploadHint = true
+                        toastMessage = "請先完成 GitHub 設定"
+                        toastType = .error
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            toastMessage = nil
+                        }
                     }
                     return
                 }
@@ -350,11 +423,36 @@ struct DrawingView: View {
                     repoName: ghRepo,
                     branch: ghBranch,
                     pathInRepo: pathInRepo,
-                    token: token
+                    token: token,
+                    onSuccess: {
+                        DispatchQueue.main.async {
+                            toastMessage = "已成功上傳到 GitHub"
+                            toastType = .success
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                toastMessage = nil
+                                goToNextQuestion()
+                            }
+                        }
+                    },
+                    onError: { error in
+                        DispatchQueue.main.async {
+                            toastMessage = error
+                            toastType = .error
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                toastMessage = nil
+                            }
+                        }
+                    }
                 )
-                goToNextQuestion()
             } catch {
                 print("❌ 儲存失敗: \(error)")
+                DispatchQueue.main.async {
+                    toastMessage = "儲存 SVG 失敗：\(error.localizedDescription)"
+                    toastType = .error
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                        toastMessage = nil
+                    }
+                }
             }
         }
     }
@@ -388,18 +486,15 @@ struct DrawingView: View {
             do {
                 try svg.write(to: fileURL, atomically: true, encoding: .utf8)
                 print("✅ SVG (simple) 已儲存: \(fileURL)")
-                let shareURL = makeShareCopyForSharing(of: fileURL, originalName: fileName) ?? fileURL
-                DispatchQueue.main.async {
-                    exportURL = shareURL
-                    showingShareSheet = true
-                }
                 let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
                 guard !ghOwner.isEmpty, !ghRepo.isEmpty, !token.isEmpty else {
                     print("❌ GitHub 設定未完成：owner/repo/token 缺一不可")
                     DispatchQueue.main.async {
-                        showingShareSheet = false
-                        showingSettings = false
-                        showUploadHint = true
+                        toastMessage = "請先完成 GitHub 設定"
+                        toastType = .error
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            toastMessage = nil
+                        }
                     }
                     return
                 }
@@ -413,11 +508,36 @@ struct DrawingView: View {
                     repoName: ghRepo,
                     branch: ghBranch,
                     pathInRepo: pathInRepo,
-                    token: token
+                    token: token,
+                    onSuccess: {
+                        DispatchQueue.main.async {
+                            toastMessage = "✅ 已成功上傳到 GitHub"
+                            toastType = .success
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                toastMessage = nil
+                                goToNextQuestion()
+                            }
+                        }
+                    },
+                    onError: { error in
+                        DispatchQueue.main.async {
+                            toastMessage = error
+                            toastType = .error
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                toastMessage = nil
+                            }
+                        }
+                    }
                 )
-                goToNextQuestion()
             } catch {
                 print("❌ 儲存 SVG 失敗: \(error)")
+                DispatchQueue.main.async {
+                    toastMessage = "儲存 SVG 失敗：\(error.localizedDescription)"
+                    toastType = .error
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                        toastMessage = nil
+                    }
+                }
             }
         }
     }
@@ -799,9 +919,12 @@ private func uploadToGitHub(fileURL: URL,
                             repoName: String,
                             branch: String,
                             pathInRepo: String,
-                            token: String) {
+                            token: String,
+                            onSuccess: @escaping () -> Void,
+                            onError: @escaping (String) -> Void) {
     guard !token.isEmpty else {
         print("❌ 缺少 GitHub Token")
+        onError("缺少 GitHub Token")
         return
     }
     do {
@@ -827,6 +950,7 @@ private func uploadToGitHub(fileURL: URL,
             guard let encodedPath = encodeForGitHubPath(pathInRepo),
                   let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/contents/\(encodedPath)") else {
                 print("❌ URL 生成失敗")
+                onError("GitHub URL 生成失敗")
                 return
             }
             var req = URLRequest(url: url)
@@ -838,14 +962,19 @@ private func uploadToGitHub(fileURL: URL,
             let task = session.dataTask(with: req) { data, resp, err in
                 if let err = err {
                     print("❌ 上傳失敗: \(err)")
+                    onError("上傳失敗：\(err.localizedDescription)")
                     return
                 }
                 if let http = resp as? HTTPURLResponse {
                     print("ℹ️ GitHub 回應狀態碼: \(http.statusCode)")
                     if http.statusCode == 201 || http.statusCode == 200 {
                         print("✅ 已上傳到 GitHub: \(pathInRepo)")
+                        onSuccess()
                     } else if let data = data, let text = String(data: data, encoding: .utf8) {
                         print("❌ 上傳失敗，回應：\(text)")
+                        onError("上傳失敗 (HTTP \(http.statusCode))：\(text)")
+                    } else {
+                        onError("上傳失敗 (HTTP \(http.statusCode))")
                     }
                 }
             }
@@ -853,6 +982,7 @@ private func uploadToGitHub(fileURL: URL,
         }
     } catch {
         print("❌ 讀取檔案失敗: \(error)")
+        onError("讀取檔案失敗：\(error.localizedDescription)")
     }
 }
 
