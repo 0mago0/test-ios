@@ -12,6 +12,7 @@ import PencilKit
 struct PKCanvasViewWrapper: UIViewRepresentable {
     @Binding var drawing: PKDrawing
     @Binding var lineWidth: CGFloat
+    var onUndoManagerReady: ((UndoManager?) -> Void)?
     
     // Small PKCanvasView subclass to observe trait changes
     class CustomPKCanvasView: PKCanvasView {
@@ -61,6 +62,10 @@ struct PKCanvasViewWrapper: UIViewRepresentable {
         }
         canvas.delegate = context.coordinator
         canvas.isScrollEnabled = false
+        // Expose undoManager to parent
+        DispatchQueue.main.async {
+            self.onUndoManagerReady?(canvas.undoManager)
+        }
         return canvas
     }
     

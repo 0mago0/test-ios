@@ -37,6 +37,8 @@ struct DrawingView: View {
     // Simple drawing data for non-PencilKit mode
     @State private var simpleStrokes: [[StrokePoint]] = []
     @State private var currentSimpleStroke: [StrokePoint] = []
+    // Undo support
+    @State private var canvasUndoManager: UndoManager? = nil
     // 監聽字庫載入器的變化
     @StateObject private var characterLoader = CharacterLoader.shared
 
@@ -253,7 +255,9 @@ struct DrawingView: View {
                     // MARK: Canvas Area
                     ZStack {
                         if usePencilKit {
-                            PKCanvasViewWrapper(drawing: $pkDrawing, lineWidth: $brushWidth)
+                            PKCanvasViewWrapper(drawing: $pkDrawing, lineWidth: $brushWidth, onUndoManagerReady: { undoManager in
+                                self.canvasUndoManager = undoManager
+                            })
                                 .frame(width: 300, height: 300)
                                 .clipped()
                                 .overlay(canvasOverlay)
@@ -323,7 +327,31 @@ struct DrawingView: View {
                         }
                         
                         // Action Buttons
-                        HStack(spacing: 16) {
+                        HStack(spacing: 12) {
+                            // Undo Button
+                            Button(action: {
+                                withAnimation {
+                                    if usePencilKit {
+                                        canvasUndoManager?.undo()
+                                    } else {
+                                        if !simpleStrokes.isEmpty {
+                                            simpleStrokes.removeLast()
+                                        }
+                                    }
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "arrow.uturn.backward")
+                                }
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.orange.opacity(0.1))
+                                .foregroundColor(.orange)
+                                .cornerRadius(16)
+                            }
+                            
+                            // Clear Button
                             Button(action: {
                                 withAnimation {
                                     if usePencilKit {
@@ -336,7 +364,6 @@ struct DrawingView: View {
                             }) {
                                 HStack {
                                     Image(systemName: "trash")
-                                    Text("清除")
                                 }
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
@@ -353,7 +380,6 @@ struct DrawingView: View {
                                             .tint(.white)
                                     } else {
                                         Image(systemName: "paperplane.fill")
-                                        Text("送出")
                                     }
                                 }
                                 .font(.headline)
@@ -516,6 +542,19 @@ struct DrawingView: View {
                                     .foregroundColor(.secondary)
                             }
                             .padding(.vertical, 4)
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: "arrow.uturn.backward")
+                                        .foregroundColor(.orange)
+                                    Text("復原")
+                                        .font(.headline)
+                                }
+                                Text("寫錯了？按下「復原」按鈕可以回到上一步，逐筆撤銷筆畫。")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
                         }
                         
                         Section(header: Text("注意事項")) {
@@ -525,13 +564,8 @@ struct DrawingView: View {
                             Label("若網路不穩，請先完成 GitHub 設定以確保資料同步", systemImage: "wifi.exclamationmark")
                             Label("建議筆畫粗細：有壓感 10pt 以下，無壓感 5pt 以下", systemImage: "scribble")
                             Label("若無壓感模式無法書寫，請多按幾下「清除」鍵重試", systemImage: "exclamationmark.triangle")
-                            
-                            // 底部偵測 Views
-                            Color.clear
-                                .frame(height: 1)
-                                .onAppear {
-                                    hasScrolledToBottom = true
-                                }
+                        }.onAppear {
+                            hasScrolledToBottom = true
                         }
                     }
                     .navigationTitle("使用說明")
