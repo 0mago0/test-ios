@@ -168,6 +168,7 @@ struct DrawingView: View {
     @State private var showUploadSuccess = false
     @State private var toastMessage: String? = nil
     @State private var toastType: ToastType = .success
+    @State private var isUploading = false
     @State private var showingProgressDialog = false
     @State private var brushWidth: CGFloat = 5
     @State private var usePencilKit: Bool = true
@@ -311,6 +312,7 @@ struct DrawingView: View {
                             }
                         }
                         Button("匯出SVG") {
+                            guard !isUploading else { return }
                             let name = questionBank.isEmpty ? "handwriting" : questionBank[currentIndex]
                             if usePencilKit {
                                 exportSVG(drawing: pkDrawing, fileName: name)
@@ -318,6 +320,7 @@ struct DrawingView: View {
                                 exportSVGFromSimpleStrokes(strokes: simpleStrokes, fileName: name)
                             }
                         }
+                        .disabled(isUploading)
                         Button("分享") {
                             if let _ = exportURL {
                                 showingShareSheet = true
@@ -369,6 +372,7 @@ struct DrawingView: View {
 
     // 匯出 SVG
     func exportSVG(drawing: PKDrawing, fileName: String) {
+        isUploading = true
         var svgShapes = ""
 
         for stroke in drawing.strokes {
@@ -458,6 +462,7 @@ struct DrawingView: View {
     }
 
     func exportSVGFromSimpleStrokes(strokes: [[StrokePoint]], fileName: String) {
+        isUploading = true
         var svgShapes = ""
         for stroke in strokes {
             guard !stroke.isEmpty else { continue }
@@ -490,6 +495,7 @@ struct DrawingView: View {
                 guard !ghOwner.isEmpty, !ghRepo.isEmpty, !token.isEmpty else {
                     print("❌ GitHub 設定未完成：owner/repo/token 缺一不可")
                     DispatchQueue.main.async {
+                        isUploading = false
                         toastMessage = "請先完成 GitHub 設定"
                         toastType = .error
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -511,6 +517,7 @@ struct DrawingView: View {
                     token: token,
                     onSuccess: {
                         DispatchQueue.main.async {
+                            isUploading = false
                             toastMessage = "✅ 已成功上傳到 GitHub"
                             toastType = .success
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -521,6 +528,7 @@ struct DrawingView: View {
                     },
                     onError: { error in
                         DispatchQueue.main.async {
+                            isUploading = false
                             toastMessage = error
                             toastType = .error
                             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
@@ -532,6 +540,7 @@ struct DrawingView: View {
             } catch {
                 print("❌ 儲存 SVG 失敗: \(error)")
                 DispatchQueue.main.async {
+                    isUploading = false
                     toastMessage = "儲存 SVG 失敗：\(error.localizedDescription)"
                     toastType = .error
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
@@ -606,12 +615,15 @@ struct DrawingView: View {
             // 存到 UserDefaults
             UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
         }
+        // 切換題目時重置上傳狀態，防止卡住
+        isUploading = false
         clearDrawings()
     }
 
     func resetProgress() {
         currentIndex = 0
         UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
+        isUploading = false
         clearDrawings()
     }
 
@@ -972,7 +984,11 @@ private func uploadToGitHub(fileURL: URL,
                         onSuccess()
                     } else if let data = data, let text = String(data: data, encoding: .utf8) {
                         print("❌ 上傳失敗，回應：\(text)")
-                        onError("上傳失敗 (HTTP \(http.statusCode))：\(text)")
+                        if http.statusCode == 409 {
+                             onError("版本衝突：檔案已被修改，請重試")
+                        } else {
+                             onError("上傳失敗 (HTTP \(http.statusCode))：\(text)")
+                        }
                     } else {
                         onError("上傳失敗 (HTTP \(http.statusCode))")
                     }
@@ -999,7 +1015,7 @@ private func getFileSHAIfExists(repoOwner: String,
         completion(nil)
         return
     }
-    var req = URLRequest(url: url)
+    var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 10)
     req.httpMethod = "GET"
     req.addValue("token \(token)", forHTTPHeaderField: "Authorization")
 
