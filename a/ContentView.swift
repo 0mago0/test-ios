@@ -316,10 +316,38 @@ struct DrawingView: View {
                         Button("匯出SVG") {
                             guard !isUploading else { return }
                             let name = questionBank.isEmpty ? "handwriting" : questionBank[currentIndex]
-                            if usePencilKit {
-                                exportSVG(drawing: pkDrawing, fileName: name)
+                            
+                            // 儲存當前狀態（失敗時可恢復）
+                            let savedIndex = currentIndex
+                            let savedPKDrawing = pkDrawing
+                            let savedSimpleStrokes = simpleStrokes
+                            let currentUsePencilKit = usePencilKit
+                            
+                            // 顯示上傳中提示
+                            isUploading = true
+                            toastMessage = "⏳ 上傳中..."
+                            toastType = .success
+                            
+                            // 立即清除畫布並跳到下一題（樂觀更新）
+                            DispatchQueue.main.async {
+                                goToNextQuestion()
+                            }
+                            
+                            // 背景進行上傳，傳入恢復所需資訊
+                            if currentUsePencilKit {
+                                exportSVGInBackground(
+                                    drawing: savedPKDrawing,
+                                    fileName: name,
+                                    savedIndex: savedIndex,
+                                    savedDrawing: savedPKDrawing
+                                )
                             } else {
-                                exportSVGFromSimpleStrokes(strokes: simpleStrokes, fileName: name)
+                                exportSVGFromSimpleStrokesInBackground(
+                                    strokes: savedSimpleStrokes,
+                                    fileName: name,
+                                    savedIndex: savedIndex,
+                                    savedStrokes: savedSimpleStrokes
+                                )
                             }
                         }
                         .disabled(isUploading)
@@ -447,6 +475,217 @@ struct DrawingView: View {
                     toastType = .error
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                         toastMessage = nil
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - 背景上傳版本（樂觀更新，失敗時恢復）
+    func exportSVGInBackground(drawing: PKDrawing, fileName: String, savedIndex: Int, savedDrawing: PKDrawing) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var svgShapes = ""
+            
+            for stroke in drawing.strokes {
+                let samples = self.interpolatedPoints(from: stroke.path)
+                guard !samples.isEmpty else { continue }
+                if samples.count == 1 {
+                    let point = samples[0]
+                    let radius = max(0.5, point.size.width / 2)
+                    svgShapes += "<circle cx=\"\(self.svgNumber(point.location.x))\" cy=\"\(self.svgNumber(point.location.y))\" r=\"\(self.svgNumber(radius))\" fill=\"black\" />\n"
+                    continue
+                }
+                
+                guard let filledPath = self.filledCGPath(for: samples) else { continue }
+                let d = self.svgPathData(from: filledPath)
+                svgShapes += """
+<path d="\(d)"
+      fill="black"
+      fill-rule="nonzero" />
+"""
+            }
+            
+            let svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+            \(svgShapes)</svg>
+            """
+            
+            // 恢復到原來題目的輔助函式
+            let restoreState = {
+                DispatchQueue.main.async {
+                    self.currentIndex = savedIndex
+                    UserDefaults.standard.set(savedIndex, forKey: "CurrentIndex")
+                    self.pkDrawing = savedDrawing
+                }
+            }
+            
+            let fileManager = FileManager.default
+            if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+                let fileURL = docDir.appendingPathComponent("\(fileName).svg")
+                do {
+                    try svg.write(to: fileURL, atomically: true, encoding: .utf8)
+                    print("✅ SVG 已儲存: \(fileURL)")
+                    let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
+                    guard !self.ghOwner.isEmpty, !self.ghRepo.isEmpty, !token.isEmpty else {
+                        print("❌ GitHub 設定未完成")
+                        restoreState()
+                        DispatchQueue.main.async {
+                            self.isUploading = false
+                            self.toastMessage = "請先完成 GitHub 設定"
+                            self.toastType = .error
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                self.toastMessage = nil
+                            }
+                        }
+                        return
+                    }
+                    let pathInRepo: String = {
+                        let base = self.ghPrefix.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                        return base.isEmpty ? fileURL.lastPathComponent : "\(base)/\(fileURL.lastPathComponent)"
+                    }()
+                    uploadToGitHub(
+                        fileURL: fileURL,
+                        repoOwner: self.ghOwner,
+                        repoName: self.ghRepo,
+                        branch: self.ghBranch,
+                        pathInRepo: pathInRepo,
+                        token: token,
+                        onSuccess: {
+                            DispatchQueue.main.async {
+                                self.isUploading = false
+                                self.toastMessage = "✅ 已上傳"
+                                self.toastType = .success
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                    self.toastMessage = nil
+                                }
+                            }
+                        },
+                        onError: { error in
+                            // 上傳失敗：恢復到原來的題目和繪圖
+                            restoreState()
+                            DispatchQueue.main.async {
+                                self.isUploading = false
+                                self.toastMessage = "❌ \(error)"
+                                self.toastType = .error
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                    self.toastMessage = nil
+                                }
+                            }
+                        }
+                    )
+                } catch {
+                    print("❌ 儲存失敗: \(error)")
+                    restoreState()
+                    DispatchQueue.main.async {
+                        self.isUploading = false
+                        self.toastMessage = "儲存失敗：\(error.localizedDescription)"
+                        self.toastType = .error
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            self.toastMessage = nil
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func exportSVGFromSimpleStrokesInBackground(strokes: [[StrokePoint]], fileName: String, savedIndex: Int, savedStrokes: [[StrokePoint]]) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var svgShapes = ""
+            for stroke in strokes {
+                guard !stroke.isEmpty else { continue }
+                if stroke.count == 1 {
+                    let p = stroke[0]
+                    let r = max(0.5, p.force / 2)
+                    svgShapes += "<circle cx=\"\(p.point.x)\" cy=\"\(p.point.y)\" r=\"\(r)\" fill=\"black\" />\n"
+                    continue
+                }
+                var d = "M \(stroke[0].point.x) \(stroke[0].point.y) "
+                for i in 1..<stroke.count {
+                    d += "L \(stroke[i].point.x) \(stroke[i].point.y) "
+                }
+                let width = max(0.5, stroke.first?.force ?? 1)
+                svgShapes += "<path d=\"\(d)\" stroke=\"black\" fill=\"none\" stroke-width=\"\(width)\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />\n"
+            }
+            
+            let svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+            \(svgShapes)</svg>
+            """
+            
+            // 恢復到原來題目的輔助函式
+            let restoreState = {
+                DispatchQueue.main.async {
+                    self.currentIndex = savedIndex
+                    UserDefaults.standard.set(savedIndex, forKey: "CurrentIndex")
+                    self.simpleStrokes = savedStrokes
+                }
+            }
+            
+            let fileManager = FileManager.default
+            if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+                let fileURL = docDir.appendingPathComponent("\(fileName).svg")
+                do {
+                    try svg.write(to: fileURL, atomically: true, encoding: .utf8)
+                    print("✅ SVG 已儲存: \(fileURL)")
+                    let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
+                    guard !self.ghOwner.isEmpty, !self.ghRepo.isEmpty, !token.isEmpty else {
+                        print("❌ GitHub 設定未完成")
+                        restoreState()
+                        DispatchQueue.main.async {
+                            self.isUploading = false
+                            self.toastMessage = "請先完成 GitHub 設定"
+                            self.toastType = .error
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                self.toastMessage = nil
+                            }
+                        }
+                        return
+                    }
+                    let pathInRepo: String = {
+                        let base = self.ghPrefix.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                        return base.isEmpty ? fileURL.lastPathComponent : "\(base)/\(fileURL.lastPathComponent)"
+                    }()
+                    uploadToGitHub(
+                        fileURL: fileURL,
+                        repoOwner: self.ghOwner,
+                        repoName: self.ghRepo,
+                        branch: self.ghBranch,
+                        pathInRepo: pathInRepo,
+                        token: token,
+                        onSuccess: {
+                            DispatchQueue.main.async {
+                                self.isUploading = false
+                                self.toastMessage = "✅ 已上傳"
+                                self.toastType = .success
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                    self.toastMessage = nil
+                                }
+                            }
+                        },
+                        onError: { error in
+                            // 上傳失敗：恢復到原來的題目和繪圖
+                            restoreState()
+                            DispatchQueue.main.async {
+                                self.isUploading = false
+                                self.toastMessage = "❌ \(error)"
+                                self.toastType = .error
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                    self.toastMessage = nil
+                                }
+                            }
+                        }
+                    )
+                } catch {
+                    print("❌ 儲存失敗: \(error)")
+                    restoreState()
+                    DispatchQueue.main.async {
+                        self.isUploading = false
+                        self.toastMessage = "儲存失敗：\(error.localizedDescription)"
+                        self.toastType = .error
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            self.toastMessage = nil
+                        }
                     }
                 }
             }
