@@ -91,7 +91,6 @@ struct DrawingView: View {
     @State private var showingShareSheet = false
     @State private var exportURL: URL? = nil
     @State private var questionBank: [String] = []
-    @State private var selectedGroup: String = handwritingGroups.first?.name ?? ""
     @State private var currentIndex: Int = UserDefaults.standard.integer(forKey: "CurrentIndex") // 讀取存檔
     @AppStorage(GHKeys.owner)  private var ghOwner: String = ""
     @AppStorage(GHKeys.repo)   private var ghRepo: String = ""
@@ -108,6 +107,8 @@ struct DrawingView: View {
     // Simple drawing data for non-PencilKit mode
     @State private var simpleStrokes: [[StrokePoint]] = []
     @State private var currentSimpleStroke: [StrokePoint] = []
+    // 監聽字庫載入器的變化
+    @StateObject private var characterLoader = CharacterLoader.shared
 
     var targetText: String {
         guard !questionBank.isEmpty else { return "題庫載入中..." }
@@ -122,7 +123,7 @@ struct DrawingView: View {
     }
 
     init() {
-        let initial = handwritingGroups.first?.characters ?? []
+        let initial = CharacterLoader.shared.loadedCharacters
         self._questionBank = State(initialValue: initial)
     }
 
@@ -142,30 +143,17 @@ struct DrawingView: View {
                 // 下方 2/3：畫布 + 控制列
                 VStack(spacing: 0) {
                     VStack {
-                        // 分組選擇
-                        Picker("分組", selection: $selectedGroup) {
-                            ForEach(handwritingGroups.map { $0.name }, id: \.self) { name in
-                                Text(name).tag(name)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .padding(.horizontal)
-                        .onChange(of: selectedGroup) { newValue in
-                            if let group = handwritingGroups.first(where: { $0.name == newValue }) {
-                                questionBank = group.characters
-                                currentIndex = 0
-                                UserDefaults.standard.set(0, forKey: "CurrentIndex")
-                                clearDrawings()
-                            }
-                        }
-
                         // 模式切換
                         Picker("Mode", selection: $usePencilKit) {
-                            Text("PencilKit").tag(true)
-                            Text("原本寫法").tag(false)
+                            Text("有壓感").tag(true)
+                            Text("無壓感").tag(false)
                         }
                         .pickerStyle(.segmented)
                         .padding(.horizontal)
+                        .onChange(of: characterLoader.loadedText) { _ in
+                            // 當字庫更新時，同步更新題庫
+                            updateQuestionBankFromLoader()
+                        }
 
                         ZStack {
                             if usePencilKit {
@@ -281,7 +269,6 @@ struct DrawingView: View {
         }
         .sheet(isPresented: $showingProgressDialog) {
             ProgressSheetView(
-                selectedGroup: $selectedGroup,
                 currentIndex: currentIndex,
                 questions: questionBank,
                 completedCharacters: completedCharacters,
@@ -515,6 +502,14 @@ struct DrawingView: View {
         showingProgressDialog = false
     }
     
+    /// 當字庫變更時更新題庫
+    func updateQuestionBankFromLoader() {
+        questionBank = characterLoader.loadedCharacters
+        currentIndex = 0
+        UserDefaults.standard.set(0, forKey: "CurrentIndex")
+        clearDrawings()
+    }
+    
     private func interpolatedPoints(from path: PKStrokePath) -> [PKStrokePoint] {
         if #available(iOS 14.0, *) {
             let slice = path.interpolatedPoints(in: nil, by: .distance(1))
@@ -607,7 +602,6 @@ struct ActivityViewController: UIViewControllerRepresentable {
 
 // Progress sheet with selectable targets and GitHub completion hints
 struct ProgressSheetView: View {
-    @Binding var selectedGroup: String
     let currentIndex: Int
     let questions: [String]
     let completedCharacters: Set<String>
@@ -621,17 +615,6 @@ struct ProgressSheetView: View {
     var body: some View {
         NavigationView {
             List {
-                Section("分組") {
-                    Picker("分組", selection: $selectedGroup) {
-                        ForEach(handwritingGroups.map { $0.name }, id: \.self) { name in
-                            Text(name).tag(name)
-                        }
-                    }
-                    .onChange(of: selectedGroup) { newValue in
-                        // switching group updates DrawingView via binding
-                    }
-                }
-
                 Section {
                     Text(progressText)
                         .font(.headline)
@@ -1037,9 +1020,61 @@ struct GitHubSettingsView: View {
     @State private var token: String = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
     @Environment(\.dismiss) private var dismiss
     @State private var showSaved = false
+    
+    // 字庫網址相關
+    @StateObject private var characterLoader = CharacterLoader.shared
+    @State private var characterURL: String = CharacterLoader.shared.savedURL
+    @State private var isLoadingCharacters = false
+    @State private var loadResult: String? = nil
+    @State private var loadResultIsError = false
+    
     var body: some View {
         NavigationView {
             Form {
+                // 字庫來源設定
+                Section(header: Text("字庫來源")) {
+                    TextField("字庫 TXT 網址", text: $characterURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    
+                    HStack {
+                        Button(action: loadCharactersFromURL) {
+                            if isLoadingCharacters {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle())
+                            } else {
+                                Text("從網址載入")
+                            }
+                        }
+                        .disabled(isLoadingCharacters)
+                        
+                        Spacer()
+                        
+                        Button("恢復預設") {
+                            characterLoader.resetToDefault()
+                            characterURL = ""
+                            loadResult = "已恢復為預設字庫"
+                            loadResultIsError = false
+                        }
+                        .foregroundColor(.orange)
+                    }
+                    
+                    if let result = loadResult {
+                        Text(result)
+                            .font(.footnote)
+                            .foregroundColor(loadResultIsError ? .red : .green)
+                    }
+                    
+                    Text("目前字庫：\(characterLoader.loadedText.count) 字")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    
+                    Text("輸入 .txt 檔案的網址，內容應為純文字漢字。留空則使用預設字庫。")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+                
                 Section(header: Text("Repository")) {
                     TextField("Owner（使用者或組織）", text: $owner)
                         .textInputAutocapitalization(.never)
@@ -1062,7 +1097,7 @@ struct GitHubSettingsView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            .navigationTitle("GitHub 設定")
+            .navigationTitle("設定")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("關閉") { dismiss() }
@@ -1079,6 +1114,22 @@ struct GitHubSettingsView: View {
             }
             .alert("已儲存", isPresented: $showSaved) {
                 Button("OK", role: .cancel) {}
+            }
+        }
+    }
+    
+    private func loadCharactersFromURL() {
+        isLoadingCharacters = true
+        loadResult = nil
+        
+        characterLoader.loadFromURL(characterURL) { success, errorMessage in
+            isLoadingCharacters = false
+            if success {
+                loadResult = "載入成功！共 \(characterLoader.loadedText.count) 字"
+                loadResultIsError = false
+            } else {
+                loadResult = errorMessage ?? "載入失敗"
+                loadResultIsError = true
             }
         }
     }

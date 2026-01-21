@@ -1,0 +1,41 @@
+# Xcode
+## User settings
+*.xcuserdatad
+*.xcuserdata
+
+## Build artifacts
+build/
+DerivedData/
+
+## Project file compatibility (Xcode 9+)
+*.xcscmblueprint
+*.xccheckout
+
+## App packaging
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+# ... other macOS specific files
+
+# Swift Package Manager
+# Add this line if you want to avoid checking in source code from Swift Package Manager dependencies.
+Packages/
+Package.pins
+Package.resolved
+
+# CocoaPods
+Pods/
+# ... other CocoaPods specific files
+
+# Carthage
+Carthage/Build/
+# ... other Carthage specific files
