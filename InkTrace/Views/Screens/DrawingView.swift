@@ -858,6 +858,7 @@ struct DrawingView: View {
         let clamped = max(0, min(index, questionBank.count - 1))
         if currentIndex != clamped {
             currentIndex = clamped
+            visualIndex = Double(clamped)  // 同步 visualIndex
             UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
         }
         clearDrawings()
