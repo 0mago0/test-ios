@@ -17,6 +17,71 @@ struct SimpleError: LocalizedError {
 // MARK: - GitHub Service
 enum GitHubService {
     
+    /// 檢查並取得去重後的檔案路徑（如果重複則加上 -1, -2 等）
+    static func getUniquePathForFile(
+        fileName: String,
+        repoOwner: String,
+        repoName: String,
+        branch: String,
+        folderPath: String,
+        token: String,
+        completion: @escaping (String) -> Void
+    ) {
+        let fileExtension = fileName.contains(".") ? String(fileName.split(separator: ".").last ?? "") : ""
+        let fileNameWithoutExt = fileName.contains(".") ? String(fileName.dropLast(fileExtension.count + 1)) : fileName
+        
+        // 先檢查檔案是否存在
+        let testPath = folderPath.isEmpty ? fileName : "\(folderPath)/\(fileName)"
+        getFileSHAIfExists(
+            repoOwner: repoOwner,
+            repoName: repoName,
+            pathInRepo: testPath,
+            branch: branch,
+            token: token
+        ) { sha in
+            if sha == nil {
+                // 檔案不存在，直接使用原始名稱
+                completion(testPath)
+                return
+            }
+            
+            // 檔案存在，開始尋找不重複的名稱
+            var counter = 1
+            let checkNext = { () -> Void in }
+            
+            func tryNextName() {
+                let newFileName = fileExtension.isEmpty
+                    ? "\(fileNameWithoutExt)-\(counter)"
+                    : "\(fileNameWithoutExt)-\(counter).\(fileExtension)"
+                let newPath = folderPath.isEmpty ? newFileName : "\(folderPath)/\(newFileName)"
+                
+                getFileSHAIfExists(
+                    repoOwner: repoOwner,
+                    repoName: repoName,
+                    pathInRepo: newPath,
+                    branch: branch,
+                    token: token
+                ) { sha in
+                    if sha == nil {
+                        // 找到不重複的名稱
+                        completion(newPath)
+                    } else {
+                        // 繼續嘗試下一個
+                        counter += 1
+                        if counter <= 100 { // 最多檢查到 -100
+                            tryNextName()
+                        } else {
+                            // 防止無限迴圈，回退到原始路徑
+                            completion(testPath)
+                        }
+                    }
+                }
+            }
+            
+            tryNextName()
+        }
+    }
+    
     /// 上傳檔案到 GitHub（建立或更新）
     static func upload(
         fileURL: URL,

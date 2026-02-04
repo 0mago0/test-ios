@@ -28,7 +28,7 @@ struct DrawingView: View {
     @State private var brushWidth: CGFloat = 5
     @State private var usePencilKit: Bool = true
     @State private var canvasScalePercent: Int = 100 // 50-100%
-    @State private var completedCharacters: Set<String> = []
+    @State private var completedCharacters: Set<Int> = [] // 儲存已完成的字符索引
     @State private var isLoadingCompletions = false
     @State private var completionError: String? = nil
     @State private var dragOffset: CGFloat = 0  // 記錄滑動偏移量
@@ -168,7 +168,7 @@ struct DrawingView: View {
                                     let scale = max(0.4, 1.0 - (dist / 220))
                                     let opacity = max(0.2, 1.0 - (dist / 180))
                                     
-                                    let isCompleted = completedCharacters.contains(questionBank[index])
+                                    let isCompleted = completedCharacters.contains(index)
                                     let color: Color = isCompleted ? .green : .primary
                                     
                                     Text(questionBank[index])
@@ -782,41 +782,62 @@ struct DrawingView: View {
                     }
                     return
                 }
-                let pathInRepo: String = {
-                    let base = self.ghPrefix.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                    return base.isEmpty ? fileURL.lastPathComponent : "\(base)/\(fileURL.lastPathComponent)"
-                }()
+                let folderPath = self.ghPrefix.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                let fileName = fileURL.lastPathComponent
                 
-                GitHubService.upload(
-                    fileURL: fileURL,
+                // 檢查去重後的檔案路徑
+                GitHubService.getUniquePathForFile(
+                    fileName: fileName,
                     repoOwner: self.ghOwner,
                     repoName: self.ghRepo,
                     branch: self.ghBranch,
-                    pathInRepo: pathInRepo,
-                    token: token,
-                    onSuccess: {
-                        DispatchQueue.main.async {
-                            self.isUploading = false
-                            self.toastMessage = "✅ 已上傳"
-                            self.toastType = .success
-                            self.completedCharacters.insert(fileName)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                                self.toastMessage = nil
+                    folderPath: folderPath,
+                    token: token
+                ) { uniquePath in
+                    print("📝 將上傳到路徑: \(uniquePath)")
+                    
+                    GitHubService.upload(
+                        fileURL: fileURL,
+                        repoOwner: self.ghOwner,
+                        repoName: self.ghRepo,
+                        branch: self.ghBranch,
+                        pathInRepo: uniquePath,
+                        token: token,
+                        onSuccess: {
+                            DispatchQueue.main.async {
+                                self.isUploading = false
+                                self.toastMessage = "✅ 已上傳"
+                                self.toastType = .success
+                                
+                                // 根據上傳的檔案路徑更新本地完成狀態
+                                // 從路徑中提取檔案名稱（去掉 .svg 和文件夾）
+                                let pathComponents = uniquePath.split(separator: "/").map(String.init)
+                                let uploadedFileName = pathComponents.last ?? fileName
+                                let fileNameWithoutExt = uploadedFileName.hasSuffix(".svg")
+                                    ? String(uploadedFileName.dropLast(4))
+                                    : uploadedFileName
+                                
+                                // 根據字庫順序更新完成狀態
+                                self.updateCompletionForUploadedFile(fileNameWithoutExt)
+                                
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                    self.toastMessage = nil
+                                }
+                            }
+                        },
+                        onError: { error in
+                            restoreState()
+                            DispatchQueue.main.async {
+                                self.isUploading = false
+                                self.toastMessage = "❌ \(error)"
+                                self.toastType = .error
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                    self.toastMessage = nil
+                                }
                             }
                         }
-                    },
-                    onError: { error in
-                        restoreState()
-                        DispatchQueue.main.async {
-                            self.isUploading = false
-                            self.toastMessage = "❌ \(error)"
-                            self.toastType = .error
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                                self.toastMessage = nil
-                            }
-                        }
-                    }
-                )
+                    )
+                }
             } catch {
                 print("❌ 儲存失敗: \(error)")
                 restoreState()
@@ -882,8 +903,34 @@ struct DrawingView: View {
                 self.isLoadingCompletions = false
                 switch result {
                 case .success(let names):
-                    let valid = names.filter { self.questionBank.contains($0) }
-                    self.completedCharacters = Set(valid)
+                    // 根據字庫順序計算已完成的字符索引
+                    // 每個字根據它是第幾個出現來檢查對應的版本
+                    print("📋 GitHub 文件列表: \(names)")
+                    var completedIndices: Set<Int> = []
+                    var characterCount: [String: Int] = [:] // 追蹤每個字出現的次數
+                    
+                    for (index, char) in self.questionBank.enumerated() {
+                        let occurrenceNumber = (characterCount[char] ?? 0)
+                        characterCount[char] = occurrenceNumber + 1
+                        
+                        // 檢查對應的版本是否存在
+                        let fileNameToCheck: String
+                        if occurrenceNumber == 0 {
+                            // 第一個出現時檢查原始名稱
+                            fileNameToCheck = char
+                        } else {
+                            // 第二個及之後檢查帶後綴的版本
+                            fileNameToCheck = "\(char)-\(occurrenceNumber)"
+                        }
+                        
+                        let isCompleted = names.contains(fileNameToCheck)
+                        print("🔍 字 '\(char)' (次數:\(occurrenceNumber)) → 檢查 '\(fileNameToCheck)' → \(isCompleted ? "✓" : "✗")")
+                        
+                        if isCompleted {
+                            completedIndices.insert(index)
+                        }
+                    }
+                    self.completedCharacters = completedIndices
                     self.completionError = nil
                 case .failure(let error):
                     self.completionError = error.localizedDescription
@@ -930,6 +977,32 @@ struct DrawingView: View {
         self.visualIndex = 0 // 重置 visualIndex
         UserDefaults.standard.set(0, forKey: "CurrentIndex")
         self.clearDrawings()
+    }
+    
+    /// 根據上傳的檔案名稱更新本地完成狀態（無需查詢 GitHub）
+    private func updateCompletionForUploadedFile(_ uploadedFileName: String) {
+        // 追蹤每個字出現的次數
+        var characterCount: [String: Int] = [:]
+        
+        for (index, char) in self.questionBank.enumerated() {
+            let occurrenceNumber = (characterCount[char] ?? 0)
+            characterCount[char] = occurrenceNumber + 1
+            
+            // 檢查上傳的檔案是否匹配這個字的這個版本
+            let expectedFileName: String
+            if occurrenceNumber == 0 {
+                expectedFileName = char
+            } else {
+                expectedFileName = "\(char)-\(occurrenceNumber)"
+            }
+            
+            // 如果匹配，標記為完成
+            if uploadedFileName == expectedFileName {
+                print("✅ 標記為完成: 第 \(index) 個字符 '\(char)' (版本: \(occurrenceNumber))")
+                self.completedCharacters.insert(index)
+                return
+            }
+        }
     }
     
     // MARK: - SVG Path Helpers

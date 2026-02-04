@@ -11,7 +11,7 @@ import SwiftUI
 struct ProgressSheetView: View {
     let currentIndex: Int
     let questions: [String]
-    let completedCharacters: Set<String>
+    let completedCharacters: Set<Int>
     let isLoading: Bool
     let errorMessage: String?
     let onSelect: (Int) -> Void
@@ -65,7 +65,7 @@ struct ProgressSheetView: View {
                                 HStack {
                                     Text("\(index + 1). \(char)")
                                     Spacer()
-                                    if completedCharacters.contains(char) {
+                                    if completedCharacters.contains(index) {
                                         Image(systemName: "checkmark.circle.fill")
                                             .foregroundColor(.green)
                                     }
