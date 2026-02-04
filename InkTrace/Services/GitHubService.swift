@@ -305,23 +305,51 @@ enum FileNameUtility {
         }
     }
 
-    /// 清理檔案名稱（移除特殊字元）
+    /// 編碼檔案名稱（用 URL encoding 保留字符信息，便於反向解碼）
     static func sanitizedFileName(from original: String) -> String {
-        let transformed = original
-            .applyingTransform(.toLatin, reverse: false)?
-            .applyingTransform(.stripCombiningMarks, reverse: false) ?? original
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
-        var result = ""
-        for scalar in transformed.unicodeScalars {
-            if allowed.contains(scalar) {
-                result.append(Character(scalar))
-            } else if CharacterSet.whitespaces.contains(scalar) {
-                result.append("-")
+        // iOS 檔案系統不允許的字符: < > : " / \ | ? * 以及路徑分隔符
+        let forbiddenCharacters = CharacterSet(charactersIn: "<>:\"/\\|?*\n\t")
+        var needsEncoding = false
+        
+        // 檢查是否包含不允許的字符
+        for scalar in original.unicodeScalars {
+            if forbiddenCharacters.contains(scalar) {
+                needsEncoding = true
+                break
             }
         }
-        if result.isEmpty {
-            result = "export"
+        
+        // 如果沒有不允許的字符，直接返回原始名稱
+        if !needsEncoding {
+            return original
         }
-        return result
+        
+        // 包含不允許的字符，使用 URL encoding 編碼
+        var allowed = CharacterSet.urlPathAllowed
+        // 移除 URL 路徑中允許但檔案系統不允許的字符
+        allowed.remove(charactersIn: "<>:\"/\\|?*")
+        
+        if let encoded = original.addingPercentEncoding(withAllowedCharacters: allowed) {
+            return encoded
+        }
+        
+        // 備用方案：用下劃線替換
+        var result = ""
+        for scalar in original.unicodeScalars {
+            if forbiddenCharacters.contains(scalar) {
+                result.append("_")
+            } else {
+                result.append(Character(scalar))
+            }
+        }
+        return result.isEmpty ? "export" : result
+    }
+    
+    /// 解碼檔案名稱（將 URL encoded 的名稱還原為原始字符）
+    static func decodeFileName(_ encoded: String) -> String {
+        if let decoded = encoded.removingPercentEncoding {
+            return decoded
+        }
+        return encoded
     }
 }

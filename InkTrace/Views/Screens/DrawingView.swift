@@ -764,7 +764,9 @@ struct DrawingView: View {
     private func saveAndUploadSVG(svg: String, fileName: String, restoreState: @escaping () -> Void) {
         let fileManager = FileManager.default
         if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
-            let fileURL = docDir.appendingPathComponent("\(fileName).svg")
+            // 清理檔案名稱以避免特殊字符問題
+            let sanitizedName = FileNameUtility.sanitizedFileName(from: fileName)
+            let fileURL = docDir.appendingPathComponent("\(sanitizedName).svg")
             do {
                 try svg.write(to: fileURL, atomically: true, encoding: .utf8)
                 print("✅ SVG 已儲存: \(fileURL)")
@@ -907,6 +909,10 @@ struct DrawingView: View {
                     // 根據字庫順序計算已完成的字符索引
                     // 每個字根據它是第幾個出現來檢查對應的版本
                     print("📋 GitHub 文件列表: \(names)")
+                    
+                    // 解碼所有檔案名稱（可能包含 URL encoding）
+                    let decodedNames = names.map { FileNameUtility.decodeFileName($0) }
+                    
                     var completedIndices: Set<Int> = []
                     var characterCount: [String: Int] = [:] // 追蹤每個字出現的次數
                     
@@ -924,7 +930,7 @@ struct DrawingView: View {
                             fileNameToCheck = "\(char)-\(occurrenceNumber)"
                         }
                         
-                        let isCompleted = names.contains(fileNameToCheck)
+                        let isCompleted = decodedNames.contains(fileNameToCheck)
                         print("🔍 字 '\(char)' (次數:\(occurrenceNumber)) → 檢查 '\(fileNameToCheck)' → \(isCompleted ? "✓" : "✗")")
                         
                         if isCompleted {
@@ -982,6 +988,9 @@ struct DrawingView: View {
     
     /// 根據上傳的檔案名稱更新本地完成狀態（無需查詢 GitHub）
     private func updateCompletionForUploadedFile(_ uploadedFileName: String) {
+        // 解碼上傳的檔案名稱（可能包含 URL encoding）
+        let decodedFileName = FileNameUtility.decodeFileName(uploadedFileName)
+        
         // 追蹤每個字出現的次數
         var characterCount: [String: Int] = [:]
         
@@ -998,7 +1007,7 @@ struct DrawingView: View {
             }
             
             // 如果匹配，標記為完成
-            if uploadedFileName == expectedFileName {
+            if decodedFileName == expectedFileName {
                 print("✅ 標記為完成: 第 \(index) 個字符 '\(char)' (版本: \(occurrenceNumber))")
                 self.completedCharacters.insert(index)
                 return
