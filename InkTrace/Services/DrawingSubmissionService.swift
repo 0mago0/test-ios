@@ -141,20 +141,30 @@ enum DrawingSubmissionService {
         let folderPath = config.prefix.trimmingCharacters(in: .whitespacesAndNewlines)
         let localFileName = fileURL.lastPathComponent
 
-        GitHubService.getUniquePathForFile(
-            fileName: localFileName,
+        let primaryPath = joinPath(folderPath, localFileName)
+
+        GitHubService.getFileSHAIfExists(
             repoOwner: config.owner,
             repoName: config.repo,
+            pathInRepo: primaryPath,
             branch: config.branch,
-            folderPath: folderPath,
             token: config.token
-        ) { uniquePath in
+        ) { existingSHA in
+            let targetPath: String
+            if existingSHA == nil {
+                targetPath = primaryPath
+            } else {
+                let duplicateFolder = joinPath(folderPath, "duplicate", sanitizedName)
+                let timestampName = "\(duplicateTimestampFileName()).svg"
+                targetPath = joinPath(duplicateFolder, timestampName)
+            }
+
             GitHubService.upload(
                 fileURL: fileURL,
                 repoOwner: config.owner,
                 repoName: config.repo,
                 branch: config.branch,
-                pathInRepo: uniquePath,
+                pathInRepo: targetPath,
                 token: config.token,
                 onSuccess: {
                     notifyMain(.success(()), completion: completion)
@@ -239,5 +249,20 @@ enum DrawingSubmissionService {
 
     private static func svgNumber(_ value: CGFloat) -> String {
         String(format: "%.2f", Double(value))
+    }
+
+    private static func joinPath(_ components: String...) -> String {
+        components
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "/")
+    }
+
+    private static func duplicateTimestampFileName() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HHmmssSSS'Z'"
+        return formatter.string(from: Date())
     }
 }
