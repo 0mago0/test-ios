@@ -287,68 +287,18 @@ enum GitHubService {
 
 // MARK: - File Name Utilities
 enum FileNameUtility {
-    /// 建立分享用的檔案副本
-    static func makeShareCopy(of originalURL: URL, originalName: String) -> URL? {
-        let sanitizedName = sanitizedFileName(from: originalName) + ".svg"
-        let shareURL = originalURL.deletingLastPathComponent().appendingPathComponent(sanitizedName)
-        if shareURL == originalURL { return originalURL }
-        do {
-            if FileManager.default.fileExists(atPath: shareURL.path) {
-                try FileManager.default.removeItem(at: shareURL)
-            }
-            try FileManager.default.copyItem(at: originalURL, to: shareURL)
-            return shareURL
-        } catch {
-            print("⚠️ Share copy failed: \(error)")
-            return nil
-        }
+    /// 將檔案名稱轉為 Unicode code point 格式（例如 U+4E2D）
+    static func sanitizedFileName(from original: String) -> String {
+        let encoded = unicodeCodepointFileStem(from: original)
+        return encoded.isEmpty ? "export" : encoded
     }
 
-    /// 編碼檔案名稱（用 URL encoding 保留字符信息，便於反向解碼）
-    static func sanitizedFileName(from original: String) -> String {
-        // iOS 檔案系統不允許的字符: < > : " / \ | ? * 以及路徑分隔符
-        let forbiddenCharacters = CharacterSet(charactersIn: "<>:\"/\\|?*\n\t")
-        var needsEncoding = false
-        
-        // 檢查是否包含不允許的字符
-        for scalar in original.unicodeScalars {
-            if forbiddenCharacters.contains(scalar) {
-                needsEncoding = true
-                break
-            }
+    static func unicodeCodepointFileStem(from text: String) -> String {
+        let codepoints = text.unicodeScalars.map { scalar -> String in
+            let hex = String(scalar.value, radix: 16).uppercased()
+            let padded = String(repeating: "0", count: max(0, 4 - hex.count)) + hex
+            return "U+\(padded)"
         }
-        
-        // 如果沒有不允許的字符，直接返回原始名稱
-        if !needsEncoding {
-            return original
-        }
-        
-        // 包含不允許的字符，使用 URL encoding 編碼
-        var allowed = CharacterSet.urlPathAllowed
-        // 移除 URL 路徑中允許但檔案系統不允許的字符
-        allowed.remove(charactersIn: "<>:\"/\\|?*")
-        
-        if let encoded = original.addingPercentEncoding(withAllowedCharacters: allowed) {
-            return encoded
-        }
-        
-        // 備用方案：用下劃線替換
-        var result = ""
-        for scalar in original.unicodeScalars {
-            if forbiddenCharacters.contains(scalar) {
-                result.append("_")
-            } else {
-                result.append(Character(scalar))
-            }
-        }
-        return result.isEmpty ? "export" : result
-    }
-    
-    /// 解碼檔案名稱（將 URL encoded 的名稱還原為原始字符）
-    static func decodeFileName(_ encoded: String) -> String {
-        if let decoded = encoded.removingPercentEncoding {
-            return decoded
-        }
-        return encoded
+        return codepoints.joined(separator: "-")
     }
 }
