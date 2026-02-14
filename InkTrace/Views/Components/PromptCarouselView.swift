@@ -6,6 +6,8 @@
 import SwiftUI
 
 struct PromptCarouselView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let questionBank: [String]
     let currentIndex: Int
     @Binding var visualIndex: Double
@@ -90,9 +92,10 @@ struct PromptCarouselView: View {
         let scale = max(0.4, 1.0 - (dist / 220))
         let opacity = max(0.2, 1.0 - (dist / 180))
 
+        let failedColor: Color = colorScheme == .light ? .orange : .yellow
         let color: Color = failedCharacters.contains(index)
-            ? .yellow
-            : (completedCharacters.contains(index) ? .green : .white)
+            ? failedColor
+            : (completedCharacters.contains(index) ? .green : .primary)
 
         return Text(questionBank[index])
             .font(.system(size: 80, weight: .bold))
