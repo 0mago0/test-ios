@@ -47,7 +47,6 @@ enum GitHubService {
             
             // 檔案存在，開始尋找不重複的名稱
             var counter = 1
-            let checkNext = { () -> Void in }
             
             func tryNextName() {
                 let newFileName = fileExtension.isEmpty

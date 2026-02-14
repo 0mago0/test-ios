@@ -36,7 +36,9 @@ struct PKCanvasViewWrapper: UIViewRepresentable {
         }
     }
     
-    func makeUIView(context: Context) -> PKCanvasView {
+    typealias UIViewType = CustomPKCanvasView
+
+    func makeUIView(context: Context) -> CustomPKCanvasView {
         let canvas = CustomPKCanvasView()
         // Force the canvas to use light appearance so PencilKit doesn't invert ink colors in dark mode
         if #available(iOS 13.0, *) {
@@ -49,15 +51,11 @@ struct PKCanvasViewWrapper: UIViewRepresentable {
         canvas.drawingPolicy = .anyInput
         // Use fixed black pen color
         canvas.tool = PKInkingTool(.pen, color: .black, width: lineWidth)
-        if let c = canvas as? CustomPKCanvasView {
-            c.penWidth = lineWidth
-        }
+        canvas.penWidth = lineWidth
         // Keep observer but set fixed black when trait changes (no-op for color)
-        if let c = canvas as? CustomPKCanvasView {
-            c.onTraitChange = { _ in
-                DispatchQueue.main.async {
-                    c.tool = PKInkingTool(.pen, color: .black, width: self.lineWidth)
-                }
+        canvas.onTraitChange = { _ in
+            DispatchQueue.main.async {
+                canvas.tool = PKInkingTool(.pen, color: .black, width: self.lineWidth)
             }
         }
         canvas.delegate = context.coordinator
@@ -69,16 +67,14 @@ struct PKCanvasViewWrapper: UIViewRepresentable {
         return canvas
     }
     
-    func updateUIView(_ uiView: PKCanvasView, context: Context) {
+    func updateUIView(_ uiView: CustomPKCanvasView, context: Context) {
         if uiView.drawing != drawing {
             uiView.drawing = drawing
         }
         // Ensure pen remains black
         uiView.tool = PKInkingTool(.pen, color: .black, width: lineWidth)
-        if let c = uiView as? CustomPKCanvasView {
-            c.penWidth = lineWidth
-            c.tool = PKInkingTool(.pen, color: .black, width: c.penWidth)
-        }
+        uiView.penWidth = lineWidth
+        uiView.tool = PKInkingTool(.pen, color: .black, width: uiView.penWidth)
     }
     
     func makeCoordinator() -> Coordinator {

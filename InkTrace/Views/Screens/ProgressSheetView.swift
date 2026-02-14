@@ -12,11 +12,9 @@ struct ProgressSheetView: View {
     let currentIndex: Int
     let questions: [String]
     let completedCharacters: Set<Int>
-    let isLoading: Bool
-    let errorMessage: String?
+    let failedCharacters: Set<Int>
     let onSelect: (Int) -> Void
     let onReset: () -> Void
-    let onRefresh: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -31,24 +29,6 @@ struct ProgressSheetView: View {
                     } else {
                         Text("題庫載入中...")
                             .foregroundColor(.secondary)
-                    }
-                }
-
-                if let errorMessage {
-                    Section("GitHub 狀態") {
-                        Text(errorMessage)
-                            .foregroundColor(.red)
-                        Button("重新整理") {
-                            onRefresh()
-                        }
-                    }
-                } else if isLoading {
-                    Section("GitHub 狀態") {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
-                        }
                     }
                 }
 
@@ -68,6 +48,13 @@ struct ProgressSheetView: View {
                                     if completedCharacters.contains(index) {
                                         Image(systemName: "checkmark.circle.fill")
                                             .foregroundColor(.green)
+                                    } else if failedCharacters.contains(index) {
+                                        Image(systemName: "exclamationmark.circle.fill")
+                                            .foregroundColor(.yellow)
+                                    } else {
+                                        Circle()
+                                            .stroke(Color(UIColor.separator), lineWidth: 1)
+                                            .frame(width: 14, height: 14)
                                     }
                                     if index == currentIndex {
                                         Text("目前")
@@ -97,13 +84,6 @@ struct ProgressSheetView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("目前進度")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("重新整理") {
-                        onRefresh()
-                    }
-                }
-            }
         }
     }
 

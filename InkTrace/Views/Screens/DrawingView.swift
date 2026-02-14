@@ -10,6 +10,20 @@ import PencilKit
 
 /// 主繪圖頁面 View
 struct DrawingView: View {
+    private enum UploadTaskState {
+        case uploading
+        case success
+        case failed
+    }
+
+    private struct UploadTask: Identifiable {
+        let id: UUID
+        let index: Int
+        let character: String
+        var state: UploadTaskState
+        var message: String?
+    }
+
     @State private var pkDrawing = PKDrawing()
     @State private var questionBank: [String] = []
     @State private var currentIndex: Int = UserDefaults.standard.integer(forKey: "CurrentIndex")
@@ -22,7 +36,6 @@ struct DrawingView: View {
     @State private var hasScrolledToBottom = false // 用於判斷是否已閱讀完畢說明
     @State private var toastMessage: String? = nil
     @State private var toastType: ToastType = .success
-    @State private var isUploading = false
     @State private var showingProgressDialog = false
     @State private var showingHelp = false
     @State private var brushWidth: CGFloat = 5
@@ -31,8 +44,11 @@ struct DrawingView: View {
     @State private var completedCharacters: Set<Int> = [] // 儲存已完成的字符索引
     @State private var isLoadingCompletions = false
     @State private var completionError: String? = nil
+    @State private var failedCharacters: Set<Int> = []
     @State private var dragOffset: CGFloat = 0  // 記錄滑動偏移量
     @State private var visualIndex: Double = Double(UserDefaults.standard.integer(forKey: "CurrentIndex")) // 用於平滑動畫的顯示索引
+    @State private var uploadTasks: [UploadTask] = []
+    @State private var hasSyncedFromGitHub = false
     
     // Simple drawing data for non-PencilKit mode
     @State private var simpleStrokes: [[StrokePoint]] = []
@@ -69,209 +85,25 @@ struct DrawingView: View {
                 Color(UIColor.systemGroupedBackground).ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    // MARK: Top Navigation Bar
-                    HStack {
-                        Button {
-                            DispatchQueue.main.async {
-                                showingSettings = true
-                            }
-                        } label: {
-                            Image(systemName: "gearshape.fill")
-                                .font(.title3)
-                                .foregroundColor(.primary)
-                                .padding(10)
-                                .background(Color(UIColor.secondarySystemGroupedBackground))
-                                .clipShape(Circle())
-                        }
-                        
-                        Spacer()
-                                                
-                        Button {
-                            hasScrolledToBottom = false
-                            showingHelp = true
-                        } label: {
-                            Image(systemName: "questionmark.circle")
-                                .font(.title3)
-                                .foregroundColor(.primary)
-                                .padding(10)
-                                .background(Color(UIColor.secondarySystemGroupedBackground))
-                                .clipShape(Circle())
-                        }
-                        
-                        Button {
-                            DispatchQueue.main.async {
-                                showingProgressDialog = true
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                refreshCompletionStatus(force: true)
-                            }
-                        } label: {
-                            Image(systemName: "chart.bar.xaxis")
-                                .font(.title3)
-                                .foregroundColor(.primary)
-                                .padding(10)
-                                .background(Color(UIColor.secondarySystemGroupedBackground))
-                                .clipShape(Circle())
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
-                    
-                    // MARK: Prompt Card
-                    VStack(spacing: 8) {
-                        Text(questionBank.isEmpty ? "載入中..." : "請寫")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        
-                        // MARK: Carousel
-                        GeometryReader { geo in
-                            let center = geo.size.width / 2
-                            let baseItemWidth: CGFloat = 40 // 基礎間距：縮小兩側間距
-                            
-                            // 動態計算可見範圍
-                            // 使用 visualIndex 而不是 currentIndex 來計算，避免 currentIndex 和 dragOffset 變動造成的不連續
-                            let centerIndex = Int(round(visualIndex))
-                            
-                            // 修正計算 range 的方式：
-                            // 我們需要確保即將進入畫面的元素也被渲染出來
-                            // visualIndex 變化時，左右兩側的元素會像流一樣進出
-                            let range = 50 // 加大渲染範圍，避免邊緣消失
-                            let minIndex = max(0, centerIndex - range)
-                            let maxIndex = min(questionBank.count - 1, centerIndex + range)
-                            
-                            ZStack {
-                                ForEach(minIndex...maxIndex, id: \.self) { index in
-                                    // 核心修改：將 dragOffset 隱式整合進 visual calculation
-                                    // 手勢進行中: visualIndex 不變，dragOffset 變 (效果: (i - visual)*w + drag)
-                                    // 手勢結束時: visualIndex 變 (target), dragOffset 變 (0) (效果: (i - target)*w + 0)
-                                    // 若 (visual - target)*w == drag，則無縫。
-                                    
-                                    // 為了讓上述公式統一，我們定義一個 effectiveVisualIndex:
-                                    // effectiveVisualIndex = visualIndex - (dragOffset / baseItemWidth)
-                                    // 這樣邏輯位置 = (index - effectiveVisualIndex) * w
-                                    
-                                    let effectiveVisualIndex = CGFloat(visualIndex) - (dragOffset / baseItemWidth)
-                                    let offsetFromVisualCenter = CGFloat(index) - effectiveVisualIndex
-                                    
-                                    // 1. 邏輯位置
-                                    let logicalOffset = offsetFromVisualCenter * baseItemWidth
-                                    
-                                    // 2. 視覺位置 (Non-linear): 中間擠開，兩側緊密
-                                    let sign: CGFloat = logicalOffset > 0 ? 1 : -1
-                                    let maxShift: CGFloat = 60
-                                    let decay: CGFloat = 60
-                                    let shift = sign * maxShift * (1 - exp(-abs(logicalOffset) / decay))
-                                    let visualPos = logicalOffset + shift
-                                    
-                                    let dist = abs(visualPos)
-                                    let scale = max(0.4, 1.0 - (dist / 220))
-                                    let opacity = max(0.2, 1.0 - (dist / 180))
-                                    
-                                    let isCompleted = completedCharacters.contains(index)
-                                    let color: Color = isCompleted ? .green : .primary
-                                    
-                                    Text(questionBank[index])
-                                        .font(.system(size: 80, weight: .bold))
-                                        .foregroundColor(color)
-                                        .scaleEffect(scale)
-                                        .opacity(opacity)
-                                        .position(x: center + visualPos, y: geo.size.height / 2)
-                                        .onTapGesture {
-                                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                                jumpToQuestion(index: index)
-                                                // 同步 visualIndex
-                                                visualIndex = Double(index)
-                                            }
-                                        }
-                                }
-                            }
-                        }
-                        .frame(height: 100)
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    // 手勢變更時，直接修改 visualIndex
-                                    // 這裡使用增量更新會比較準確，但 onChange 只能給出總量 (translation)
-                                    // 所以我們採用以下的策略：
-                                    // 記錄手勢開始時的 visualIndex (snapshot) 然後加上 translation
-                                    // 但因為 @State 限制，這裡我們改用一個簡單的 hack：
-                                    // 我們假設手勢非常連續，每次變動我們都基於「當前顯示的狀態」去做微調？不，這會漂移。
-                                    
-                                    // 更好的做法：使用 dragOffset 儲存當前手勢的位移，
-                                    // 但在渲染時，將 visualizeIndex 視為基準。
-                                    // 當手勢 *結束* 時，才把 dragOffset 合併進 visualIndex 并清零。
-                                    // 在手勢 *進行中*，上面的渲染邏輯需要改成：
-                                    // let offsetFromVisualCenter = CGFloat(index) - (CGFloat(visualIndex) - dragOffset / baseItemWidth)
-                                    dragOffset = value.translation.width
-                                }
-                                .onEnded { value in
-                                    let baseItemWidth: CGFloat = 40
-                                    
-                                    // 1. 計算目標 visualIndex
-                                    let currentVisualPos = visualIndex - (value.translation.width / baseItemWidth)
-                                    //稍微降低速度係數，讓滑動更受控
-                                    let predictedPos = currentVisualPos - (value.velocity.width * 0.1 / baseItemWidth)
-                                    
-                                    var targetIndex = Int(round(predictedPos))
-                                    targetIndex = max(0, min(targetIndex, questionBank.count - 1))
-                                    
-                                    // 限制單次滑動最大跳躍距離，避免跳太遠導致動畫看起來像瞬移
-                                    let maxJump = 15
-                                    let currentIndexInt = Int(round(currentVisualPos))
-                                    let jumpDist = targetIndex - currentIndexInt
-                                    if abs(jumpDist) > maxJump {
-                                        targetIndex = currentIndexInt + (jumpDist > 0 ? maxJump : -maxJump)
-                                    }
-                                    
-                                    // 2. 執行動畫
-                                    // 動態計算動畫時間：距離越遠，時間越長，避免看起來像瞬移
-                                    let distanceToTravel = abs(Double(targetIndex) - currentVisualPos)
-                                    // 基礎 0.4s (稍微調慢)，每多移動 1 個單位增加 0.02s，上限 0.8s
-                                    let response = min(0.8, max(0.4, 0.3 + (distanceToTravel * 0.02)))
-                                    
-                                    // 使用 dampingFraction: 1.0 確保沒有回彈 (Critical Damping)
-                                    withAnimation(.spring(response: response, dampingFraction: 1.0)) {
-                                        visualIndex = Double(targetIndex)
-                                        dragOffset = 0
-                                    }
-                                    
-                                    if targetIndex != currentIndex {
-                                        jumpToQuestion(index: targetIndex)
-                                    }
-                                }
-                        )
-                    }
-                    .frame(maxWidth: 500)
-                    .padding(.vertical, 20)
-                    .background(Color(UIColor.secondarySystemGroupedBackground))
-                    .cornerRadius(20)
-                    .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 5)
-                    .padding(.horizontal)
+                    topNavigationBar
+                    promptCard
                     
                     Spacer()
                     
                     // MARK: Canvas Area
-                    ZStack {
-                        if usePencilKit {
-                            PKCanvasViewWrapper(drawing: $pkDrawing, lineWidth: $brushWidth, onUndoManagerReady: { undoManager in
-                                self.canvasUndoManager = undoManager
-                            })
-                                .frame(width: 300, height: 300)
-                                .clipped()
-                                .overlay(canvasOverlay)
+                    Group {
+                        if geo.size.width >= 1000 {
+                            HStack(alignment: .top, spacing: 14) {
+                                drawingCanvas
+                                uploadStatusCard
+                            }
                         } else {
-                            SimpleDrawingView(strokes: $simpleStrokes, currentStroke: $currentSimpleStroke, lineWidth: $brushWidth)
-                                .frame(width: 300, height: 300)
-                                .clipped()
-                                .overlay(canvasOverlay)
+                            VStack(spacing: 12) {
+                                drawingCanvas
+                                uploadStatusCard
+                            }
                         }
                     }
-                    .background(Color.white)
-                    .cornerRadius(12)
-                    .shadow(color: Color.black.opacity(0.1), radius: 12, x: 0, y: 6)
-                    .scaleEffect(canvasScale)
                     
                     Spacer()
                     
@@ -375,7 +207,7 @@ struct DrawingView: View {
                             
                             Button(action: { handleExportSVG() }) {
                                 HStack {
-                                    if isUploading {
+                                    if hasActiveUploads {
                                         ProgressView()
                                             .tint(.white)
                                     } else {
@@ -385,11 +217,10 @@ struct DrawingView: View {
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(isUploading ? Color.gray : Color.blue)
+                                .background(Color.blue)
                                 .foregroundColor(.white)
                                 .cornerRadius(16)
                             }
-                            .disabled(isUploading)
                         }
                     }
                     .padding()
@@ -400,9 +231,7 @@ struct DrawingView: View {
                     .padding(.bottom, 8)
                 }
             }
-            .sheet(isPresented: $showingSettings, onDismiss: {
-                refreshCompletionStatus()
-            }) {
+            .sheet(isPresented: $showingSettings) {
                 GitHubSettingsView()
             }
             .sheet(isPresented: $showingProgressDialog) {
@@ -410,16 +239,12 @@ struct DrawingView: View {
                     currentIndex: currentIndex,
                     questions: questionBank,
                     completedCharacters: completedCharacters,
-                    isLoading: isLoadingCompletions,
-                    errorMessage: completionError,
+                    failedCharacters: failedCharacters,
                     onSelect: { index in
                         jumpToQuestion(index: index)
                     },
                     onReset: {
                         resetProgress()
-                    },
-                    onRefresh: {
-                        refreshCompletionStatus(force: true)
                     }
                 )
             }
@@ -602,12 +427,164 @@ struct DrawingView: View {
                     hasScrolledToBottom = false
                     showingHelp = true
                 }
-                refreshCompletionStatus()
+                syncCompletionStatusOnLaunchIfNeeded()
             }
         }
     }
     
     // MARK: - Subviews
+
+    private var topNavigationBar: some View {
+        HStack {
+            Button {
+                DispatchQueue.main.async {
+                    showingSettings = true
+                }
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.title3)
+                    .foregroundColor(.primary)
+                    .padding(10)
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .clipShape(Circle())
+            }
+
+            Spacer()
+
+            Button {
+                hasScrolledToBottom = false
+                showingHelp = true
+            } label: {
+                Image(systemName: "questionmark.circle")
+                    .font(.title3)
+                    .foregroundColor(.primary)
+                    .padding(10)
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .clipShape(Circle())
+            }
+
+            Button {
+                DispatchQueue.main.async {
+                    showingProgressDialog = true
+                }
+            } label: {
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.title3)
+                    .foregroundColor(.primary)
+                    .padding(10)
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .clipShape(Circle())
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+    }
+
+    private var promptCard: some View {
+        VStack(spacing: 8) {
+            Text(questionBank.isEmpty ? "載入中..." : "請寫")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            promptCarousel
+        }
+        .frame(maxWidth: 500)
+        .padding(.vertical, 20)
+        .background(Color(UIColor.secondarySystemGroupedBackground))
+        .cornerRadius(20)
+        .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 5)
+        .padding(.horizontal)
+    }
+
+    private var promptCarousel: some View {
+        GeometryReader { geo in
+            let center = geo.size.width / 2
+            let baseItemWidth: CGFloat = 40
+            let centerIndex = Int(round(visualIndex))
+            let range = 50
+            let minIndex = max(0, centerIndex - range)
+            let maxIndex = min(questionBank.count - 1, centerIndex + range)
+            let visibleIndices: [Int] = minIndex <= maxIndex ? Array(minIndex...maxIndex) : []
+
+            ZStack {
+                ForEach(visibleIndices, id: \.self) { index in
+                    carouselItemView(
+                        index: index,
+                        centerX: center,
+                        centerY: geo.size.height / 2,
+                        baseItemWidth: baseItemWidth
+                    )
+                }
+            }
+        }
+        .frame(height: 100)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    dragOffset = value.translation.width
+                }
+                .onEnded { value in
+                    let baseItemWidth: CGFloat = 40
+                    let currentVisualPos = visualIndex - (value.translation.width / baseItemWidth)
+                    let predictedPos = currentVisualPos - (value.velocity.width * 0.1 / baseItemWidth)
+
+                    var targetIndex = Int(round(predictedPos))
+                    targetIndex = max(0, min(targetIndex, questionBank.count - 1))
+
+                    let maxJump = 15
+                    let currentIndexInt = Int(round(currentVisualPos))
+                    let jumpDist = targetIndex - currentIndexInt
+                    if abs(jumpDist) > maxJump {
+                        targetIndex = currentIndexInt + (jumpDist > 0 ? maxJump : -maxJump)
+                    }
+
+                    let distanceToTravel = abs(Double(targetIndex) - currentVisualPos)
+                    let response = min(0.8, max(0.4, 0.3 + (distanceToTravel * 0.02)))
+
+                    withAnimation(.spring(response: response, dampingFraction: 1.0)) {
+                        visualIndex = Double(targetIndex)
+                        dragOffset = 0
+                    }
+
+                    if targetIndex != currentIndex {
+                        jumpToQuestion(index: targetIndex)
+                    }
+                }
+        )
+    }
+
+    private func carouselItemView(index: Int, centerX: CGFloat, centerY: CGFloat, baseItemWidth: CGFloat) -> some View {
+        let effectiveVisualIndex = CGFloat(visualIndex) - (dragOffset / baseItemWidth)
+        let offsetFromVisualCenter = CGFloat(index) - effectiveVisualIndex
+        let logicalOffset = offsetFromVisualCenter * baseItemWidth
+        let sign: CGFloat = logicalOffset > 0 ? 1 : -1
+        let maxShift: CGFloat = 60
+        let decay: CGFloat = 60
+        let shift = sign * maxShift * (1 - exp(-abs(logicalOffset) / decay))
+        let visualPos = logicalOffset + shift
+        let dist = abs(visualPos)
+        let scale = max(0.4, 1.0 - (dist / 220))
+        let opacity = max(0.2, 1.0 - (dist / 180))
+
+        let color: Color = failedCharacters.contains(index)
+            ? .yellow
+            : (completedCharacters.contains(index) ? .green : .white)
+
+        return Text(questionBank[index])
+            .font(.system(size: 80, weight: .bold))
+            .foregroundColor(color)
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .position(x: centerX + visualPos, y: centerY)
+            .onTapGesture {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    jumpToQuestion(index: index)
+                    visualIndex = Double(index)
+                }
+            }
+    }
     
     /// 畫布上的覆蓋層（預覽字、邊框、十字線）
     @ViewBuilder
@@ -627,21 +604,118 @@ struct DrawingView: View {
             Crosshair(size: CGSize(width: 300, height: 300), lineColor: Color(UIColor.separator), lineWidth: 1, dash: [4, 4])
         }
     }
+
+    private var drawingCanvas: some View {
+        ZStack {
+            if usePencilKit {
+                PKCanvasViewWrapper(drawing: $pkDrawing, lineWidth: $brushWidth, onUndoManagerReady: { undoManager in
+                    self.canvasUndoManager = undoManager
+                })
+                    .frame(width: 300, height: 300)
+                    .clipped()
+                    .overlay(canvasOverlay)
+            } else {
+                SimpleDrawingView(strokes: $simpleStrokes, currentStroke: $currentSimpleStroke, lineWidth: $brushWidth)
+                    .frame(width: 300, height: 300)
+                    .clipped()
+                    .overlay(canvasOverlay)
+            }
+        }
+        .background(Color.white)
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 12, x: 0, y: 6)
+        .scaleEffect(canvasScale)
+    }
+
+    private var uploadStatusCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("上傳狀態")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            if uploadTasks.isEmpty {
+                Text("等待送出")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(uploadTasks.prefix(4)) { task in
+                    HStack(spacing: 8) {
+                        if task.state == .uploading {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: iconName(for: task.state))
+                                .font(.caption)
+                                .foregroundColor(color(for: task.state))
+                        }
+
+                        Text(statusText(for: task))
+                            .font(.caption)
+                            .foregroundColor(color(for: task.state))
+                            .lineLimit(2)
+                    }
+                }
+            }
+        }
+        .frame(width: 180, alignment: .leading)
+        .padding(10)
+        .background(Color(UIColor.secondarySystemGroupedBackground))
+        .cornerRadius(10)
+    }
+
+    private var hasActiveUploads: Bool {
+        uploadTasks.contains { $0.state == .uploading }
+    }
+
+    private func statusText(for task: UploadTask) -> String {
+        switch task.state {
+        case .uploading:
+            return "上傳中：\(task.character)"
+        case .success:
+            return "已上傳：\(task.character)"
+        case .failed:
+            return "失敗：\(task.character)"
+        }
+    }
+
+    private func iconName(for state: UploadTaskState) -> String {
+        switch state {
+        case .uploading:
+            return "arrow.up.circle"
+        case .success:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "exclamationmark.circle.fill"
+        }
+    }
+
+    private func color(for state: UploadTaskState) -> Color {
+        switch state {
+        case .uploading:
+            return .blue
+        case .success:
+            return .green
+        case .failed:
+            return .yellow
+        }
+    }
     
     // MARK: - Actions
     
     private func handleExportSVG() {
-        guard !isUploading else { return }
+        guard !questionBank.isEmpty, currentIndex >= 0, currentIndex < questionBank.count else { return }
         let name = questionBank.isEmpty ? "handwriting" : questionBank[currentIndex]
+        let submittedIndex = currentIndex
+        let taskID = UUID()
         
-        // 儲存當前狀態（失敗時可恢復）
-        let savedIndex = currentIndex
         let savedPKDrawing = pkDrawing
         let savedSimpleStrokes = simpleStrokes
         let currentUsePencilKit = usePencilKit
         
         // 顯示上傳中提示
-        isUploading = true
+        uploadTasks.insert(UploadTask(id: taskID, index: submittedIndex, character: name, state: .uploading, message: nil), at: 0)
+        completedCharacters.insert(submittedIndex)
+        failedCharacters.remove(submittedIndex)
         toastMessage = "⏳ 上傳中..."
         toastType = .success
         
@@ -655,22 +729,22 @@ struct DrawingView: View {
             exportSVGInBackground(
                 drawing: savedPKDrawing,
                 fileName: name,
-                savedIndex: savedIndex,
-                savedDrawing: savedPKDrawing
+                submittedIndex: submittedIndex,
+                taskID: taskID
             )
         } else {
             exportSVGFromSimpleStrokesInBackground(
                 strokes: savedSimpleStrokes,
                 fileName: name,
-                savedIndex: savedIndex,
-                savedStrokes: savedSimpleStrokes
+                submittedIndex: submittedIndex,
+                taskID: taskID
             )
         }
     }
 
-    // MARK: - 背景上傳版本（樂觀更新，失敗時恢復）
+    // MARK: - 背景上傳版本（樂觀更新，不回跳）
     
-    func exportSVGInBackground(drawing: PKDrawing, fileName: String, savedIndex: Int, savedDrawing: PKDrawing) {
+    func exportSVGInBackground(drawing: PKDrawing, fileName: String, submittedIndex: Int, taskID: UUID) {
         DispatchQueue.global(qos: .userInitiated).async {
             var svgShapes = ""
             
@@ -697,25 +771,12 @@ struct DrawingView: View {
             <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
             \(svgShapes)</svg>
             """
-            
-            // 恢復到原來題目的輔助函式
-            let restoreState = {
-                DispatchQueue.main.async {
-                    self.currentIndex = savedIndex
-                    // 同步 visualIndex 狀態以確保 Carousel 顯示正確
-                    withAnimation {
-                        self.visualIndex = Double(savedIndex)
-                    }
-                    UserDefaults.standard.set(savedIndex, forKey: "CurrentIndex")
-                    self.pkDrawing = savedDrawing
-                }
-            }
-            
-            self.saveAndUploadSVG(svg: svg, fileName: fileName, restoreState: restoreState)
+
+            self.saveAndUploadSVG(svg: svg, fileName: fileName, submittedIndex: submittedIndex, taskID: taskID)
         }
     }
 
-    func exportSVGFromSimpleStrokesInBackground(strokes: [[StrokePoint]], fileName: String, savedIndex: Int, savedStrokes: [[StrokePoint]]) {
+    func exportSVGFromSimpleStrokesInBackground(strokes: [[StrokePoint]], fileName: String, submittedIndex: Int, taskID: UUID) {
         DispatchQueue.global(qos: .userInitiated).async {
             var svgShapes = ""
             for stroke in strokes {
@@ -742,26 +803,13 @@ struct DrawingView: View {
             <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
             \(svgShapes)</svg>
             """
-            
-            // 恢復到原來題目的輔助函式
-            let restoreState = {
-                DispatchQueue.main.async {
-                    self.currentIndex = savedIndex
-                    // 同步 visualIndex
-                    withAnimation {
-                        self.visualIndex = Double(savedIndex)
-                    }
-                    UserDefaults.standard.set(savedIndex, forKey: "CurrentIndex")
-                    self.simpleStrokes = savedStrokes
-                }
-            }
-            
-            self.saveAndUploadSVG(svg: svg, fileName: fileName, restoreState: restoreState)
+
+            self.saveAndUploadSVG(svg: svg, fileName: fileName, submittedIndex: submittedIndex, taskID: taskID)
         }
     }
     
     /// 儲存並上傳 SVG
-    private func saveAndUploadSVG(svg: String, fileName: String, restoreState: @escaping () -> Void) {
+    private func saveAndUploadSVG(svg: String, fileName: String, submittedIndex: Int, taskID: UUID) {
         let fileManager = FileManager.default
         if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
             // 清理檔案名稱以避免特殊字符問題
@@ -773,9 +821,10 @@ struct DrawingView: View {
                 let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
                 guard !self.ghOwner.isEmpty, !self.ghRepo.isEmpty, !token.isEmpty else {
                     print("❌ GitHub 設定未完成")
-                    restoreState()
                     DispatchQueue.main.async {
-                        self.isUploading = false
+                        self.completedCharacters.remove(submittedIndex)
+                        self.failedCharacters.insert(submittedIndex)
+                        self.updateUploadTask(id: taskID, state: .failed, message: "GitHub 設定未完成")
                         self.toastMessage = "請先完成 GitHub 設定"
                         self.toastType = .error
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -807,20 +856,11 @@ struct DrawingView: View {
                         token: token,
                         onSuccess: {
                             DispatchQueue.main.async {
-                                self.isUploading = false
+                                self.failedCharacters.remove(submittedIndex)
+                                self.completedCharacters.insert(submittedIndex)
+                                self.updateUploadTask(id: taskID, state: .success, message: nil)
                                 self.toastMessage = "✅ 已上傳"
                                 self.toastType = .success
-                                
-                                // 根據上傳的檔案路徑更新本地完成狀態
-                                // 從路徑中提取檔案名稱（去掉 .svg 和文件夾）
-                                let pathComponents = uniquePath.split(separator: "/").map(String.init)
-                                let uploadedFileName = pathComponents.last ?? fileName
-                                let fileNameWithoutExt = uploadedFileName.hasSuffix(".svg")
-                                    ? String(uploadedFileName.dropLast(4))
-                                    : uploadedFileName
-                                
-                                // 根據字庫順序更新完成狀態
-                                self.updateCompletionForUploadedFile(fileNameWithoutExt)
                                 
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                                     self.toastMessage = nil
@@ -828,9 +868,10 @@ struct DrawingView: View {
                             }
                         },
                         onError: { error in
-                            restoreState()
                             DispatchQueue.main.async {
-                                self.isUploading = false
+                                self.completedCharacters.remove(submittedIndex)
+                                self.failedCharacters.insert(submittedIndex)
+                                self.updateUploadTask(id: taskID, state: .failed, message: error)
                                 self.toastMessage = "❌ \(error)"
                                 self.toastType = .error
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
@@ -842,9 +883,10 @@ struct DrawingView: View {
                 }
             } catch {
                 print("❌ 儲存失敗: \(error)")
-                restoreState()
                 DispatchQueue.main.async {
-                    self.isUploading = false
+                    self.completedCharacters.remove(submittedIndex)
+                    self.failedCharacters.insert(submittedIndex)
+                    self.updateUploadTask(id: taskID, state: .failed, message: "本機儲存失敗")
                     self.toastMessage = "儲存失敗：\(error.localizedDescription)"
                     self.toastType = .error
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
@@ -866,8 +908,10 @@ struct DrawingView: View {
         clearDrawings()
     }
 
-    func refreshCompletionStatus(force: Bool = false) {
-        if isLoadingCompletions && !force { return }
+    func syncCompletionStatusOnLaunchIfNeeded() {
+        if hasSyncedFromGitHub || isLoadingCompletions { return }
+        hasSyncedFromGitHub = true
+
         let owner = ghOwner.trimmingCharacters(in: .whitespacesAndNewlines)
         let repo = ghRepo.trimmingCharacters(in: .whitespacesAndNewlines)
         let branch = ghBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -878,14 +922,12 @@ struct DrawingView: View {
         guard !owner.isEmpty, !repo.isEmpty else {
             DispatchQueue.main.async {
                 self.completionError = "請先完成 GitHub 設定"
-                self.completedCharacters = []
             }
             return
         }
         guard !token.isEmpty else {
             DispatchQueue.main.async {
                 self.completionError = "找不到 GitHub Token"
-                self.completedCharacters = []
             }
             return
         }
@@ -937,13 +979,20 @@ struct DrawingView: View {
                             completedIndices.insert(index)
                         }
                     }
-                    self.completedCharacters = completedIndices
+                    self.completedCharacters.formUnion(completedIndices)
+                    self.failedCharacters.subtract(completedIndices)
                     self.completionError = nil
                 case .failure(let error):
                     self.completionError = error.localizedDescription
                 }
             }
         }
+    }
+
+    private func updateUploadTask(id: UUID, state: UploadTaskState, message: String?) {
+        guard let index = uploadTasks.firstIndex(where: { $0.id == id }) else { return }
+        uploadTasks[index].state = state
+        uploadTasks[index].message = message
     }
 
     func goToNextQuestion() {
@@ -959,14 +1008,15 @@ struct DrawingView: View {
                 self.visualIndex = Double(self.currentIndex)
             }
         }
-        self.isUploading = false
         self.clearDrawings()
     }
 
     func resetProgress() {
         currentIndex = 0
         UserDefaults.standard.set(currentIndex, forKey: "CurrentIndex")
-        isUploading = false
+        completedCharacters = []
+        failedCharacters = []
+        uploadTasks = []
         clearDrawings()
     }
 
@@ -983,36 +1033,10 @@ struct DrawingView: View {
         self.currentIndex = 0
         self.visualIndex = 0 // 重置 visualIndex
         UserDefaults.standard.set(0, forKey: "CurrentIndex")
+        self.completedCharacters = []
+        self.failedCharacters = []
+        self.uploadTasks = []
         self.clearDrawings()
-    }
-    
-    /// 根據上傳的檔案名稱更新本地完成狀態（無需查詢 GitHub）
-    private func updateCompletionForUploadedFile(_ uploadedFileName: String) {
-        // 解碼上傳的檔案名稱（可能包含 URL encoding）
-        let decodedFileName = FileNameUtility.decodeFileName(uploadedFileName)
-        
-        // 追蹤每個字出現的次數
-        var characterCount: [String: Int] = [:]
-        
-        for (index, char) in self.questionBank.enumerated() {
-            let occurrenceNumber = (characterCount[char] ?? 0)
-            characterCount[char] = occurrenceNumber + 1
-            
-            // 檢查上傳的檔案是否匹配這個字的這個版本
-            let expectedFileName: String
-            if occurrenceNumber == 0 {
-                expectedFileName = char
-            } else {
-                expectedFileName = "\(char)-\(occurrenceNumber)"
-            }
-            
-            // 如果匹配，標記為完成
-            if decodedFileName == expectedFileName {
-                print("✅ 標記為完成: 第 \(index) 個字符 '\(char)' (版本: \(occurrenceNumber))")
-                self.completedCharacters.insert(index)
-                return
-            }
-        }
     }
     
     // MARK: - SVG Path Helpers
