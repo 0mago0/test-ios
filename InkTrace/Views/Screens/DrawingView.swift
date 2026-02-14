@@ -264,7 +264,7 @@ struct DrawingView: View {
         completedCharacters.insert(submittedIndex)
         failedCharacters.remove(submittedIndex)
         saveLocalCharacterStatus()
-        toastMessage = "⏳ 上傳中..."
+        toastMessage = "⏳ 正在上傳「\(name)」"
         toastType = .success
 
         goToNextQuestion()
@@ -276,7 +276,7 @@ struct DrawingView: View {
                 completedCharacters.insert(submittedIndex)
                 saveLocalCharacterStatus()
                 updateUploadTask(id: taskID, state: .success, message: nil)
-                toastMessage = "✅ 已上傳"
+                toastMessage = "✅ 「\(name)」已上傳"
                 toastType = .success
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                     toastMessage = nil
@@ -289,9 +289,9 @@ struct DrawingView: View {
                 updateUploadTask(id: taskID, state: .failed, message: error.localizedDescription)
 
                 if case .missingGitHubConfiguration = error {
-                    toastMessage = "請先完成 GitHub 設定"
+                    toastMessage = "請先完成 GitHub 設定（字：\(name)）"
                 } else {
-                    toastMessage = "❌ \(error.localizedDescription)"
+                    toastMessage = "❌ 「\(name)」上傳失敗：\(error.localizedDescription)"
                 }
                 toastType = .error
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
