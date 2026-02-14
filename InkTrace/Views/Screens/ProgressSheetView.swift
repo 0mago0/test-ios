@@ -14,6 +14,7 @@ struct ProgressSheetView: View {
     let completedCharacters: Set<Int>
     let failedCharacters: Set<Int>
     let onSelect: (Int) -> Void
+    let onClearLocalStatus: () -> Void
     let onReset: () -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -71,6 +72,12 @@ struct ProgressSheetView: View {
                 }
 
                 Section {
+                    Button(role: .destructive) {
+                        onClearLocalStatus()
+                        dismiss()
+                    } label: {
+                        Text("清除本地狀態（留在當前題目）")
+                    }
                     Button(role: .destructive) {
                         onReset()
                         dismiss()

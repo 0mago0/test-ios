@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PencilKit
+import CryptoKit
 
 /// 主繪圖頁面 View
 struct DrawingView: View {
@@ -23,6 +24,10 @@ struct DrawingView: View {
         var state: UploadTaskState
         var message: String?
     }
+
+    private static let localStatusFingerprintKey = "LocalCharacterStatusFingerprint"
+    private static let localCompletedKey = "LocalCharacterStatusCompletedIndices"
+    private static let localFailedKey = "LocalCharacterStatusFailedIndices"
 
     @State private var pkDrawing = PKDrawing()
     @State private var questionBank: [String] = []
@@ -42,13 +47,10 @@ struct DrawingView: View {
     @State private var usePencilKit: Bool = true
     @State private var canvasScalePercent: Int = 100 // 50-100%
     @State private var completedCharacters: Set<Int> = [] // 儲存已完成的字符索引
-    @State private var isLoadingCompletions = false
-    @State private var completionError: String? = nil
     @State private var failedCharacters: Set<Int> = []
     @State private var dragOffset: CGFloat = 0  // 記錄滑動偏移量
     @State private var visualIndex: Double = Double(UserDefaults.standard.integer(forKey: "CurrentIndex")) // 用於平滑動畫的顯示索引
     @State private var uploadTasks: [UploadTask] = []
-    @State private var hasSyncedFromGitHub = false
     
     // Simple drawing data for non-PencilKit mode
     @State private var simpleStrokes: [[StrokePoint]] = []
@@ -243,6 +245,9 @@ struct DrawingView: View {
                     onSelect: { index in
                         jumpToQuestion(index: index)
                     },
+                    onClearLocalStatus: {
+                        clearLocalCharacterStatusKeepingPosition()
+                    },
                     onReset: {
                         resetProgress()
                     }
@@ -427,7 +432,7 @@ struct DrawingView: View {
                     hasScrolledToBottom = false
                     showingHelp = true
                 }
-                syncCompletionStatusOnLaunchIfNeeded()
+                restoreLocalCharacterStatusForCurrentBank()
             }
         }
     }
@@ -716,6 +721,7 @@ struct DrawingView: View {
         uploadTasks.insert(UploadTask(id: taskID, index: submittedIndex, character: name, state: .uploading, message: nil), at: 0)
         completedCharacters.insert(submittedIndex)
         failedCharacters.remove(submittedIndex)
+        saveLocalCharacterStatus()
         toastMessage = "⏳ 上傳中..."
         toastType = .success
         
@@ -824,6 +830,7 @@ struct DrawingView: View {
                     DispatchQueue.main.async {
                         self.completedCharacters.remove(submittedIndex)
                         self.failedCharacters.insert(submittedIndex)
+                        self.saveLocalCharacterStatus()
                         self.updateUploadTask(id: taskID, state: .failed, message: "GitHub 設定未完成")
                         self.toastMessage = "請先完成 GitHub 設定"
                         self.toastType = .error
@@ -858,6 +865,7 @@ struct DrawingView: View {
                             DispatchQueue.main.async {
                                 self.failedCharacters.remove(submittedIndex)
                                 self.completedCharacters.insert(submittedIndex)
+                                self.saveLocalCharacterStatus()
                                 self.updateUploadTask(id: taskID, state: .success, message: nil)
                                 self.toastMessage = "✅ 已上傳"
                                 self.toastType = .success
@@ -871,6 +879,7 @@ struct DrawingView: View {
                             DispatchQueue.main.async {
                                 self.completedCharacters.remove(submittedIndex)
                                 self.failedCharacters.insert(submittedIndex)
+                                self.saveLocalCharacterStatus()
                                 self.updateUploadTask(id: taskID, state: .failed, message: error)
                                 self.toastMessage = "❌ \(error)"
                                 self.toastType = .error
@@ -886,6 +895,7 @@ struct DrawingView: View {
                 DispatchQueue.main.async {
                     self.completedCharacters.remove(submittedIndex)
                     self.failedCharacters.insert(submittedIndex)
+                    self.saveLocalCharacterStatus()
                     self.updateUploadTask(id: taskID, state: .failed, message: "本機儲存失敗")
                     self.toastMessage = "儲存失敗：\(error.localizedDescription)"
                     self.toastType = .error
@@ -908,85 +918,43 @@ struct DrawingView: View {
         clearDrawings()
     }
 
-    func syncCompletionStatusOnLaunchIfNeeded() {
-        if hasSyncedFromGitHub || isLoadingCompletions { return }
-        hasSyncedFromGitHub = true
-
-        let owner = ghOwner.trimmingCharacters(in: .whitespacesAndNewlines)
-        let repo = ghRepo.trimmingCharacters(in: .whitespacesAndNewlines)
-        let branch = ghBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "main" : ghBranch.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = ghPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
-        let token = KeychainHelper.read(key: GHKeys.tokenK) ?? ""
-
-        guard !owner.isEmpty, !repo.isEmpty else {
-            DispatchQueue.main.async {
-                self.completionError = "請先完成 GitHub 設定"
-            }
-            return
-        }
-        guard !token.isEmpty else {
-            DispatchQueue.main.async {
-                self.completionError = "找不到 GitHub Token"
-            }
+    private func restoreLocalCharacterStatusForCurrentBank() {
+        guard !questionBank.isEmpty else {
+            completedCharacters = []
+            failedCharacters = []
             return
         }
 
-        DispatchQueue.main.async {
-            self.isLoadingCompletions = true
-            self.completionError = nil
+        let defaults = UserDefaults.standard
+        let fingerprint = questionBankFingerprint(questionBank)
+        let savedFingerprint = defaults.string(forKey: Self.localStatusFingerprintKey)
+
+        guard savedFingerprint == fingerprint else {
+            completedCharacters = []
+            failedCharacters = []
+            saveLocalCharacterStatus()
+            return
         }
 
-        GitHubService.listSVGs(
-            owner: owner,
-            repo: repo,
-            branch: branch,
-            prefix: prefix,
-            token: token
-        ) { result in
-            DispatchQueue.main.async {
-                self.isLoadingCompletions = false
-                switch result {
-                case .success(let names):
-                    // 根據字庫順序計算已完成的字符索引
-                    // 每個字根據它是第幾個出現來檢查對應的版本
-                    print("📋 GitHub 文件列表: \(names)")
-                    
-                    // 解碼所有檔案名稱（可能包含 URL encoding）
-                    let decodedNames = names.map { FileNameUtility.decodeFileName($0) }
-                    
-                    var completedIndices: Set<Int> = []
-                    var characterCount: [String: Int] = [:] // 追蹤每個字出現的次數
-                    
-                    for (index, char) in self.questionBank.enumerated() {
-                        let occurrenceNumber = (characterCount[char] ?? 0)
-                        characterCount[char] = occurrenceNumber + 1
-                        
-                        // 檢查對應的版本是否存在
-                        let fileNameToCheck: String
-                        if occurrenceNumber == 0 {
-                            // 第一個出現時檢查原始名稱
-                            fileNameToCheck = char
-                        } else {
-                            // 第二個及之後檢查帶後綴的版本
-                            fileNameToCheck = "\(char)-\(occurrenceNumber)"
-                        }
-                        
-                        let isCompleted = decodedNames.contains(fileNameToCheck)
-                        print("🔍 字 '\(char)' (次數:\(occurrenceNumber)) → 檢查 '\(fileNameToCheck)' → \(isCompleted ? "✓" : "✗")")
-                        
-                        if isCompleted {
-                            completedIndices.insert(index)
-                        }
-                    }
-                    self.completedCharacters.formUnion(completedIndices)
-                    self.failedCharacters.subtract(completedIndices)
-                    self.completionError = nil
-                case .failure(let error):
-                    self.completionError = error.localizedDescription
-                }
-            }
-        }
+        let maxIndex = questionBank.count - 1
+        let completed = Set((defaults.array(forKey: Self.localCompletedKey) as? [Int] ?? []).filter { $0 >= 0 && $0 <= maxIndex })
+        let failed = Set((defaults.array(forKey: Self.localFailedKey) as? [Int] ?? []).filter { $0 >= 0 && $0 <= maxIndex }).subtracting(completed)
+        completedCharacters = completed
+        failedCharacters = failed
+    }
+
+    private func saveLocalCharacterStatus() {
+        guard !questionBank.isEmpty else { return }
+        let defaults = UserDefaults.standard
+        defaults.set(questionBankFingerprint(questionBank), forKey: Self.localStatusFingerprintKey)
+        defaults.set(Array(completedCharacters).sorted(), forKey: Self.localCompletedKey)
+        defaults.set(Array(failedCharacters).sorted(), forKey: Self.localFailedKey)
+    }
+
+    private func questionBankFingerprint(_ questions: [String]) -> String {
+        let source = questions.joined(separator: "\n")
+        let digest = SHA256.hash(data: Data(source.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private func updateUploadTask(id: UUID, state: UploadTaskState, message: String?) {
@@ -1017,7 +985,15 @@ struct DrawingView: View {
         completedCharacters = []
         failedCharacters = []
         uploadTasks = []
+        saveLocalCharacterStatus()
         clearDrawings()
+    }
+
+    private func clearLocalCharacterStatusKeepingPosition() {
+        completedCharacters = []
+        failedCharacters = []
+        uploadTasks = []
+        saveLocalCharacterStatus()
     }
 
     func clearDrawings() {
@@ -1033,9 +1009,8 @@ struct DrawingView: View {
         self.currentIndex = 0
         self.visualIndex = 0 // 重置 visualIndex
         UserDefaults.standard.set(0, forKey: "CurrentIndex")
-        self.completedCharacters = []
-        self.failedCharacters = []
         self.uploadTasks = []
+        self.restoreLocalCharacterStatusForCurrentBank()
         self.clearDrawings()
     }
     
