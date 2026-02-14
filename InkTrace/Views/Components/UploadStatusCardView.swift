@@ -7,19 +7,29 @@ import SwiftUI
 
 struct UploadStatusCardView: View {
     let uploadTasks: [UploadTask]
+    let maxRows: Int
+    let showTitle: Bool
+
+    init(uploadTasks: [UploadTask], maxRows: Int = 4, showTitle: Bool = true) {
+        self.uploadTasks = uploadTasks
+        self.maxRows = maxRows
+        self.showTitle = showTitle
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("上傳狀態")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            if showTitle {
+                Text("上傳狀態")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
 
             if uploadTasks.isEmpty {
                 Text("等待送出")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
-                ForEach(uploadTasks.prefix(4)) { task in
+                ForEach(uploadTasks.prefix(maxRows)) { task in
                     HStack(spacing: 8) {
                         if task.state == .uploading {
                             ProgressView()

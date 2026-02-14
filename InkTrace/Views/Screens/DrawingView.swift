@@ -37,6 +37,7 @@ struct DrawingView: View {
     @State private var dragOffset: CGFloat = 0
     @State private var visualIndex: Double = Double(UserDefaults.standard.integer(forKey: "CurrentIndex"))
     @State private var uploadTasks: [UploadTask] = []
+    @State private var topBarHeight: CGFloat = 0
 
     @State private var simpleStrokes: [[StrokePoint]] = []
     @State private var currentSimpleStroke: [StrokePoint] = []
@@ -52,6 +53,10 @@ struct DrawingView: View {
               currentIndex >= 0,
               currentIndex < questionBank.count else { return nil }
         return questionBank[currentIndex]
+    }
+
+    private var isPad: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
     }
 
     init() {
@@ -73,24 +78,18 @@ struct DrawingView: View {
                         },
                         onProgressTap: { showingProgressDialog = true }
                     )
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear
+                                .preference(key: TopBarHeightPreferenceKey.self, value: proxy.size.height)
+                        }
+                    )
 
                     promptCard
 
                     Spacer()
 
-                    Group {
-                        if geo.size.width >= 1000 {
-                            HStack(alignment: .top, spacing: 14) {
-                                drawingCanvas
-                                UploadStatusCardView(uploadTasks: uploadTasks)
-                            }
-                        } else {
-                            VStack(spacing: 12) {
-                                drawingCanvas
-                                UploadStatusCardView(uploadTasks: uploadTasks)
-                            }
-                        }
-                    }
+                    contentLayout(in: geo)
 
                     Spacer()
 
@@ -104,6 +103,16 @@ struct DrawingView: View {
                         onSubmit: handleExportSVG
                     )
                 }
+            }
+            .overlay(alignment: .topLeading) {
+                if isPad && geo.size.width > geo.size.height {
+                    UploadStatusCardView(uploadTasks: uploadTasks)
+                        .padding(.top, topBarHeight + 8)
+                        .padding(.leading, 12)
+                }
+            }
+            .onPreferenceChange(TopBarHeightPreferenceKey.self) { height in
+                topBarHeight = height
             }
             .sheet(isPresented: $showingSettings) {
                 GitHubSettingsView()
@@ -192,6 +201,32 @@ struct DrawingView: View {
                 self.canvasUndoManager = undoManager
             }
         )
+    }
+
+    @ViewBuilder
+    private func contentLayout(in geo: GeometryProxy) -> some View {
+        if isPad {
+            if geo.size.width > geo.size.height {
+                drawingCanvas
+            } else {
+                VStack(spacing: 12) {
+                    UploadStatusCardView(uploadTasks: uploadTasks)
+                    drawingCanvas
+                }
+            }
+        } else {
+            if geo.size.height >= geo.size.width {
+                VStack(spacing: 12) {
+                    drawingCanvas
+                    UploadStatusCardView(uploadTasks: uploadTasks, maxRows: 2, showTitle: false)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 14) {
+                    drawingCanvas
+                    UploadStatusCardView(uploadTasks: uploadTasks, showTitle: false)
+                }
+            }
+        }
     }
 
     private var hasActiveUploads: Bool {
@@ -385,6 +420,14 @@ struct DrawingView: View {
         self.uploadTasks = []
         self.restoreLocalCharacterStatusForCurrentBank()
         self.clearDrawings()
+    }
+}
+
+private struct TopBarHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
