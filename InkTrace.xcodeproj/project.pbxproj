@@ -25,6 +25,14 @@
 		AA00000130000001000000AC /* DrawingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A2 /* DrawingView.swift */; };
 		AA00000130000001000000AD /* GitHubSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A3 /* GitHubSettingsView.swift */; };
 		AA00000130000001000000AE /* ProgressSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000A4 /* ProgressSheetView.swift */; };
+		AA00000130000001000000C1 /* DrawingTopBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000B7 /* DrawingTopBarView.swift */; };
+		AA00000130000001000000C2 /* PromptCarouselView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000B8 /* PromptCarouselView.swift */; };
+		AA00000130000001000000C3 /* DrawingCanvasCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000B9 /* DrawingCanvasCardView.swift */; };
+		AA00000130000001000000C4 /* UploadStatusCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000BA /* UploadStatusCardView.swift */; };
+		AA00000130000001000000C5 /* DrawingControlPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000BB /* DrawingControlPanelView.swift */; };
+		AA00000130000001000000C6 /* DrawingHelpSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000BC /* DrawingHelpSheetView.swift */; };
+		AA00000130000001000000C7 /* DrawingSubmissionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000BD /* DrawingSubmissionService.swift */; };
+		AA00000130000001000000C8 /* DrawingUploadTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000130000001000000BE /* DrawingUploadTask.swift */; };
 		DD816F4E2F20B7740031DBF1 /* CharacterLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD816F4D2F20B7730031DBF1 /* CharacterLoader.swift */; };
 /* End PBXBuildFile section */
 
@@ -67,6 +75,14 @@
 		AA00000130000001000000A2 /* DrawingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingView.swift; sourceTree = "<group>"; };
 		AA00000130000001000000A3 /* GitHubSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubSettingsView.swift; sourceTree = "<group>"; };
 		AA00000130000001000000A4 /* ProgressSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressSheetView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000B7 /* DrawingTopBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingTopBarView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000B8 /* PromptCarouselView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptCarouselView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000B9 /* DrawingCanvasCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingCanvasCardView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000BA /* UploadStatusCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadStatusCardView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000BB /* DrawingControlPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingControlPanelView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000BC /* DrawingHelpSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingHelpSheetView.swift; sourceTree = "<group>"; };
+		AA00000130000001000000BD /* DrawingSubmissionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingSubmissionService.swift; sourceTree = "<group>"; };
+		AA00000130000001000000BE /* DrawingUploadTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingUploadTask.swift; sourceTree = "<group>"; };
 		DD816F4D2F20B7730031DBF1 /* CharacterLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterLoader.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -160,6 +176,7 @@
 			isa = PBXGroup;
 			children = (
 				AA000001300000010000000A /* StrokePoint.swift */,
+				AA00000130000001000000BE /* DrawingUploadTask.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -177,6 +194,7 @@
 			isa = PBXGroup;
 			children = (
 				AA000001300000010000000D /* GitHubService.swift */,
+				AA00000130000001000000BD /* DrawingSubmissionService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -197,6 +215,12 @@
 				AA000001300000010000000F /* ToastView.swift */,
 				AA00000130000001000000A0 /* PKCanvasViewWrapper.swift */,
 				AA00000130000001000000A1 /* SimpleDrawingView.swift */,
+				AA00000130000001000000B7 /* DrawingTopBarView.swift */,
+				AA00000130000001000000B8 /* PromptCarouselView.swift */,
+				AA00000130000001000000B9 /* DrawingCanvasCardView.swift */,
+				AA00000130000001000000BA /* UploadStatusCardView.swift */,
+				AA00000130000001000000BB /* DrawingControlPanelView.swift */,
+				AA00000130000001000000BC /* DrawingHelpSheetView.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -345,13 +369,21 @@
 				377AD2CF2E6AC47C00666E89 /* ContentView.swift in Sources */,
 				377AD2CD2E6AC47C00666E89 /* InkTraceApp.swift in Sources */,
 				AA000001300000010000001A /* StrokePoint.swift in Sources */,
+				AA00000130000001000000C8 /* DrawingUploadTask.swift in Sources */,
 				AA000001300000010000001B /* KeychainHelper.swift in Sources */,
 				AA000001300000010000001C /* GHKeys.swift in Sources */,
 				AA000001300000010000001D /* GitHubService.swift in Sources */,
+				AA00000130000001000000C7 /* DrawingSubmissionService.swift in Sources */,
 				AA000001300000010000001E /* Crosshair.swift in Sources */,
 				AA000001300000010000001F /* ToastView.swift in Sources */,
 				AA00000130000001000000AA /* PKCanvasViewWrapper.swift in Sources */,
 				AA00000130000001000000AB /* SimpleDrawingView.swift in Sources */,
+				AA00000130000001000000C1 /* DrawingTopBarView.swift in Sources */,
+				AA00000130000001000000C2 /* PromptCarouselView.swift in Sources */,
+				AA00000130000001000000C3 /* DrawingCanvasCardView.swift in Sources */,
+				AA00000130000001000000C4 /* UploadStatusCardView.swift in Sources */,
+				AA00000130000001000000C5 /* DrawingControlPanelView.swift in Sources */,
+				AA00000130000001000000C6 /* DrawingHelpSheetView.swift in Sources */,
 				AA00000130000001000000AC /* DrawingView.swift in Sources */,
 				AA00000130000001000000AD /* GitHubSettingsView.swift in Sources */,
 				AA00000130000001000000AE /* ProgressSheetView.swift in Sources */,
