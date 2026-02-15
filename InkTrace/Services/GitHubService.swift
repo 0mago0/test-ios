@@ -299,6 +299,6 @@ enum FileNameUtility {
             let padded = String(repeating: "0", count: max(0, 4 - hex.count)) + hex
             return "U+\(padded)"
         }
-        return codepoints.joined(separator: "-")
+        return codepoints.joined(separator: "_")
     }
 }
